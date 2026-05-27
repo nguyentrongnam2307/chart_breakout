@@ -710,7 +710,7 @@ tbody tr:hover td { background: #faf9f7; }
   <div style="flex:1"></div>
   <div style="display:flex;align-items:center;gap:0.75rem;">
     <a href="index.html" style="font-size:0.7rem;color:var(--muted);text-decoration:none;font-weight:600;border:1px solid var(--border-dark);border-radius:4px;padding:0.28rem 0.8rem;transition:background .15s;" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background='transparent'">← Trang chính</a>
-    <div id="nav-auth" style="flex-shrink:0;">
+    <div id="nav-auth" style="flex-shrink:0;display:none;">
       <button onclick="handleAuth()" data-i18n="btn.login">ĐĂNG NHẬP</button>
     </div>
   </div>
@@ -739,7 +739,7 @@ tbody tr:hover td { background: #faf9f7; }
         📂 Upload CSV
         <input type="file" id="cht-file-input" accept=".csv,.txt" multiple style="display:none;" onchange="chtLoadCSV(this)"/>
       </label>
-      <button id="cht-btn-push" onclick="chtPushFirebase()" title="Lưu nến mới lên Firebase" style="display:none;background:#1a7a52;border:1px solid #1a7a52;border-radius:4px;color:#fff;font-family:'Noto Sans JP',sans-serif;font-size:0.72rem;font-weight:700;padding:0.38rem 0.9rem;cursor:pointer;flex-shrink:0;transition:opacity .15s;">☁ Push Firebase</button>
+      <button id="cht-btn-push" onclick="chtPushFirebase()" title="Lưu nến mới lên Firebase" style="display:inline-flex;background:#1a7a52;border:1px solid #1a7a52;border-radius:4px;color:#fff;font-family:'Noto Sans JP',sans-serif;font-size:0.72rem;font-weight:700;padding:0.38rem 0.9rem;cursor:pointer;flex-shrink:0;transition:opacity .15s;">☁ Push Firebase</button>
       <button id="cht-btn-delete" onclick="chtDeleteCurrentData()" title="Xóa data sym/TF hiện tại" style="background:var(--surface);border:1px solid var(--border-dark);border-radius:4px;color:var(--red);font-family:'Noto Sans JP',sans-serif;font-size:0.72rem;font-weight:700;padding:0.38rem 0.7rem;cursor:pointer;flex-shrink:0;">✕ Xóa</button>
 
       <!-- EMA controls -->
@@ -872,12 +872,10 @@ window.showToast = (msg) => {
 window.switchMainPage = () => {};
 </script>
 
-<!-- Firebase Auth + Main Module -->
+<!-- Firebase Main Module (no auth — open access) -->
 <script type="module">
 import { initializeApp }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
-  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, query, orderBy, setDoc, getDoc, writeBatch, limit, arrayUnion, arrayRemove }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
@@ -895,8 +893,11 @@ const firebaseConfig = {
 };
 
 const app  = initializeApp(firebaseConfig);
-const auth = getAuth(app);
 const db   = getFirestore(app);
+
+// ── FIXED UID — không cần đăng nhập ──────────────
+// Mọi trình duyệt đều dùng chung UID này để đọc/ghi Firebase
+const FIXED_UID = 'shared_user';
 
 // Expose for Trade Log module
 window.db = db;
@@ -913,20 +914,16 @@ window.fbLimit = limit;
 window.fbArrayUnion = arrayUnion;
 window.fbArrayRemove = arrayRemove;
 
-let currentUser   = null;
+// Giả lập currentUser với UID cố định
+const currentUser = { uid: FIXED_UID, displayName: 'Shared', email: '' };
+window.currentUser = currentUser;
+
 let allTrades     = [];
 let pendingTrades = [];
 let pendingIdx    = 0;
 
-// ── AUTH ──────────────────────────────────────────
-window.handleAuth = async () => {
-  if (currentUser) {
-    await signOut(auth);
-  } else {
-    try { await signInWithPopup(auth, new GoogleAuthProvider()); }
-    catch(e) { showToast('Lỗi ログインp: ' + e.message); }
-  }
-};
+// Auth stub — không làm gì (giữ lại để không lỗi nếu có nơi gọi)
+window.handleAuth = async () => { showToast('Chế độ không đăng nhập — kết nối trực tiếp Firebase'); };
 
 // ── VIEW-ONLY MODE (URL param ?view=userId) ───────
 const _viewUid = new URLSearchParams(location.search).get('view');
@@ -976,90 +973,59 @@ if (_viewUid) {
   }, 300);
 }
 
-onAuthStateChanged(auth, user => {
-  if (window.isViewOnly) return; // skip auth changes in view-only mode
-  currentUser = user;
-  window.currentUser = user;
-  setNavUser(user);
-
-  // Trade Log gate
+// ── KHỞI TẠO TRỰC TIẾP — không cần đăng nhập ────
+(async () => {
+  // Ẩn auth gate, hiện content ngay
   const gate = document.getElementById('log-auth-gate');
   const real = document.getElementById('log-real-content');
-  if (gate && real) {
-    if (user) {
-      gate.style.display = 'none';
-      real.style.display = 'block';
-      logInited = false;
-      if (document.getElementById('main-log').classList.contains('active')) logInit();
-    } else {
-      gate.style.display = 'flex';
-      real.style.display = 'none';
-      logInited = false;
-    }
-  }
+  if (gate) gate.style.display = 'none';
+  if (real) real.style.display = 'block';
 
-  if (user) {
-    document.getElementById('trade-login-prompt').style.display = 'none';
-    document.getElementById('trade-content').style.display = 'block';
-    document.getElementById('wl-login-note').style.display = 'none';
-    document.getElementById('wl-content').style.display = 'block';
-    loadTrades();
-    window.wlInitPromise = initWatchlist();
-    launchConfetti(); // 🎉 confetti khi đăng nhập thành công
-    showConfettiSwitcher(); // hiện nút toggle
+  // Ẩn trade-login-prompt, hiện content
+  const tradePrompt = document.getElementById('trade-login-prompt');
+  const tradeContent = document.getElementById('trade-content');
+  if (tradePrompt) tradePrompt.style.display = 'none';
+  if (tradeContent) tradeContent.style.display = 'block';
 
-    // ── Load danh sách symbol + candles từ Firebase sau khi login ──
-    // Dùng window. vì các hàm chart được định nghĩa sau trong file
-    setTimeout(async () => {
-      try {
-        if (typeof window.chtLoadSymList === 'function') await window.chtLoadSymList();
-        // Nếu chart đang hiển thị mà chưa có candles → tự động load từ Firebase
-        const sym = window.chtCurrentSym || document.getElementById('cht-sym')?.value;
-        const tf  = window.chtCurrentTF || 'm15';
-        const key = sym && tf ? sym + '_' + tf : null;
-        const store = window.chtStore || {};
-        if (key && sym && tf && (!store[key] || !store[key].length)) {
-          if (typeof window.chtLoadFromFirestore === 'function') {
-            const candles = await window.chtLoadFromFirestore(sym, tf);
-            if (candles.length && typeof window.chtRenderTF === 'function') {
-              window.chtRenderTF(sym, tf);
-            }
+  // Ẩn watchlist login note
+  const wlNote = document.getElementById('wl-login-note');
+  const wlContent = document.getElementById('wl-content');
+  if (wlNote) wlNote.style.display = 'none';
+  if (wlContent) wlContent.style.display = 'block';
+
+  // Cập nhật nav (ẩn nút login)
+  setNavUser();
+
+  // Load trades và watchlist
+  loadTrades();
+  window.wlInitPromise = initWatchlist();
+
+  // Load chart symbols từ Firebase
+  setTimeout(async () => {
+    try {
+      if (typeof window.chtLoadSymList === 'function') await window.chtLoadSymList();
+      const sym = window.chtCurrentSym || document.getElementById('cht-sym')?.value;
+      const tf  = window.chtCurrentTF  || 'm15';
+      const key = sym && tf ? sym + '_' + tf : null;
+      const store = window.chtStore || {};
+      if (key && sym && tf && (!store[key] || !store[key].length)) {
+        if (typeof window.chtLoadFromFirestore === 'function') {
+          const candles = await window.chtLoadFromFirestore(sym, tf);
+          if (candles.length && typeof window.chtRenderTF === 'function') {
+            window.chtRenderTF(sym, tf);
           }
         }
-        if (typeof window.chtRefreshMarkersAfterLogin === 'function') {
-          window.chtRefreshMarkersAfterLogin();
-        }
-      } catch(e) { console.warn('[Chart] post-login init:', e); }
-    }, 800);
-  } else {
-    document.getElementById('trade-login-prompt').style.display = 'block';
-    document.getElementById('trade-content').style.display = 'none';
-    document.getElementById('wl-login-note').style.display = 'block';
-    document.getElementById('wl-content').style.display = 'none';
-    // confetti-switcher luôn hiển thị kể cả chưa login
-    allTrades = [];
-    renderTable([]);
-  }
-});
+      }
+      if (typeof window.chtRefreshMarkersAfterLogin === 'function') {
+        window.chtRefreshMarkersAfterLogin();
+      }
+    } catch(e) { console.warn('[Chart] init:', e); }
+  }, 800);
+})();
 
-function setNavUser(user) {
+function setNavUser() {
   const el = document.getElementById('nav-auth');
-  if (user) {
-    const name = (user.displayName||'').split(' ').pop() || user.email || 'Tôi';
-    el.innerHTML = `<div class="nav-user" id="nav-user-btn" onclick="document.getElementById('nav-user-dropdown').classList.toggle('open');event.stopPropagation()">
-      <img class="nav-avatar" src="${user.photoURL||''}" onerror="this.style.display='none'">
-      <span class="nav-user-name">${name}</span>
-      <span style="font-size:9px;color:var(--faint)">▾</span>
-      <div class="nav-dropdown" id="nav-user-dropdown">
-        <button class="nav-dropdown-item" style="color:var(--ink-2);" onclick="event.stopPropagation();logShareLink()">🔗 Chia sẻ</button>
-        <button class="nav-dropdown-item" onclick="handleAuth()" data-i18n="btn.logout">Đăng xuất</button>
-      </div>
-    </div>`;
-    // Click ngoài thì đóng dropdown
-    document.addEventListener('click', ()=>document.getElementById('nav-user-dropdown')?.classList.remove('open'), {once:false});
-  } else {
-    el.innerHTML = `<button onclick="handleAuth()" data-i18n="btn.login">ログイン</button>`;
-  }
+  if (el) el.style.display = 'none'; // Ẩn nút login — không cần đăng nhập
 }
 
 // ── FIRESTORE ─────────────────────────────────────
@@ -2017,7 +1983,7 @@ window.logSyncFromStrategy = logSyncFromStrategy;
 // Lưu từng trade vào document riêng: logTrades/{uid}/entries/{tradeId}
 async function logFbSaveTrades(){
   try{
-    const uid=window.currentUser?.uid; if(!uid)return;
+    const uid=(window.currentUser&&window.currentUser.uid)||'shared_user';
     const col=window.fbCollection(window.db,'logTrades',uid,'entries');
     // Lưu từng trade riêng (không dùng batch) để dễ phát hiện trade nào lỗi
     for(const t of logTrades){
@@ -2040,7 +2006,7 @@ async function logFbSaveTrades(){
 // Lưu 1 trade duy nhất — trade doc không chứa ảnh, ảnh lưu vào subcollection riêng
 async function logFbSaveOneTrade(t){
   try{
-    const uid=window.currentUser?.uid; if(!uid)return;
+    const uid=(window.currentUser&&window.currentUser.uid)||'shared_user';
     const tradeRef=window.fbDoc(window.db,'logTrades',uid,'entries',t.id);
 
     // 1. Tách ảnh ra khỏi trade object
@@ -2094,7 +2060,7 @@ async function logFbSaveOneTrade(t){
 // Xóa 1 trade document + toàn bộ ảnh subcollection
 async function logFbDeleteTrade(id){
   try{
-    const uid=window.currentUser?.uid; if(!uid)return;
+    const uid=(window.currentUser&&window.currentUser.uid)||'shared_user';
     // Xóa ảnh trước
     const imgCol=window.fbCollection(window.db,'logTrades',uid,'entries',id,'images');
     const imgSnap=await window.fbGetDocs(imgCol);
@@ -2107,7 +2073,7 @@ async function logFbDeleteTrade(id){
 // Load ảnh của 1 trade từ subcollection (lazy — chỉ gọi khi mở modal)
 async function logFbLoadImgsForTrade(tradeId){
   try{
-    const uid=window.currentUser?.uid; if(!uid)return{imgsByTF:{},resultImgs:[]};
+    const uid=(window.currentUser&&window.currentUser.uid)||'shared_user';
     const imgCol=window.fbCollection(window.db,'logTrades',uid,'entries',tradeId,'images');
     const snap=await window.fbGetDocs(imgCol);
     console.log('[IMG LOAD] tradeId:', tradeId, '— docs found:', snap.size);
@@ -2133,14 +2099,14 @@ async function logFbLoadImgsForTrade(tradeId){
 
 async function logFbSaveWl(){
   try{
-    const uid=window.currentUser?.uid; if(!uid)return;
+    const uid=(window.currentUser&&window.currentUser.uid)||'shared_user';
     await window.fbSetDoc(window.fbDoc(window.db,'logWl',uid),{wl:logWl,alerts:logAlerts,limits:logLimits,updatedAt:new Date().toISOString()});
   }catch(e){console.warn('logFbSaveWl',e);}
 }
 
 async function logLoad(){
   try{
-    const uid=window.currentUser?.uid || window.viewOnlyUid;
+    const uid=(window.currentUser&&window.currentUser.uid)||window.viewOnlyUid||'shared_user';
     if(!uid){
       logTrades=[];
       logWl=logInitWl();
@@ -2318,10 +2284,10 @@ function logToggleNote(pair,tr){
   ntr.style.display = open?'none':'table-row';
   if(arr) arr.textContent = open?'▶':'▼';
 }
-window.logUpdWL = (pair,k,v)=>{ if(!window.currentUser)return; logWl[pair][k]=v; logFbSaveWl(); };
-window.logUpdTF = (pair,tf,v)=>{ if(!window.currentUser)return; logWl[pair].tf[tf]=v; logFbSaveWl(); };
+window.logUpdWL = (pair,k,v)=>{ // currentUser always set logWl[pair][k]=v; logFbSaveWl(); };
+window.logUpdTF = (pair,tf,v)=>{ // currentUser always set logWl[pair].tf[tf]=v; logFbSaveWl(); };
 window.logCycleTF = (pair,tf)=>{
-  if(!window.currentUser)return;
+  // currentUser always set
   const cycle={'':'up','up':'dn','dn':'side','side':''};
   const cur=logWl[pair]?.tf?.[tf]||'';
   logWl[pair].tf[tf]=cycle[cur]||'';
@@ -3378,7 +3344,7 @@ window.logToggleImgs = async (tradeId) => {
 
 // Load thumbnail cho tất cả trade card đang hiển thị
 async function logLazyLoadThumbnails(trades){
-  const uid=window.currentUser?.uid; if(!uid)return;
+  const uid=(window.currentUser&&window.currentUser.uid)||'shared_user';
   for(const t of trades){
     const row=document.getElementById('thumbrow-'+t.id);
     if(!row)continue;
@@ -3863,7 +3829,7 @@ window.logCloseModal = (id)=>{const el=document.getElementById(id);if(el)el.styl
 
 // ── SHARE LINK ────────────────────────────────────
 window.logShareLink = () => {
-  const uid = window.currentUser?.uid;
+  const uid=(window.currentUser&&window.currentUser.uid)||'shared_user';
   if(!uid){ showToast('Chưa ログイン'); return; }
   const url = location.origin + location.pathname + '?view=' + uid;
   if(navigator.clipboard){
@@ -5543,14 +5509,12 @@ function chtChunkRef(uid, sym, tf, chunkIdx) {
 //   4. Ghi từng chunk đầy vào Firestore (mỗi chunk = 1 write)
 //   5. Cập nhật parent doc + manifest (1 write)
 async function chtSaveToFirestoreWithProgress(sym, tf, candles, onProgress) {
-  if (!window.currentUser?.uid)
-    throw new Error('Chưa đăng nhập — vui lòng Sign in trước khi Push Firebase');
   if (!window.db)
     throw new Error('Không lấy được Firebase — kiểm tra config');
   if (!candles.length)
     throw new Error('Không có nến nào để lưu');
 
-  const uid = window.currentUser.uid;
+  const uid = (window.currentUser && window.currentUser.uid) || 'shared_user';
   onProgress && onProgress(0, candles.length, 'Đang đọc Firebase...');
 
   // 1. Đọc parent doc
@@ -5667,8 +5631,8 @@ async function chtSaveToFirestore(sym, tf, candles) {
 // ── LOAD ──────────────────────────────────────────────────────
 // Đọc tất cả chunks theo thứ tự rồi ghép lại
 async function chtLoadFromFirestore(sym, tf) {
-  if (!window.currentUser?.uid || !window.db) return [];
-  const uid = window.currentUser.uid;
+  if (!window.db) return [];
+  const uid = (window.currentUser && window.currentUser.uid) || 'shared_user';
   const key = chtKey(sym, tf);
 
   // Cache hit
@@ -5730,8 +5694,8 @@ async function chtLoadFromFirestore(sym, tf) {
 // ── DELETE ────────────────────────────────────────────────────
 // Xóa tất cả chunks + parent doc + manifest entry
 async function chtDeleteFromFirestore(sym, tf) {
-  if (!window.currentUser?.uid || !window.db) return;
-  const uid = window.currentUser.uid;
+  if (!window.db) return;
+  const uid = (window.currentUser && window.currentUser.uid) || 'shared_user';
   const key = `${sym}_${tf}`;
 
   try {
@@ -5765,25 +5729,9 @@ async function chtDeleteFromFirestore(sym, tf) {
 }
 
 async function chtLoadSymList() {
-  const uid = window.currentUser?.uid;
+  const uid = (window.currentUser && window.currentUser.uid) || 'shared_user';
   const sel = document.getElementById('cht-sym');
   if (!sel) return;
-
-  if (!uid) {
-    // Khi chưa login: chỉ hiện symbol có data trong chtStore local
-    const localSyms = [...new Set(Object.keys(chtStore).map(k => k.split('_')[0]))];
-    if (localSyms.length) {
-      sel.innerHTML = localSyms.map(s => `<option value="${s}">${s}</option>`).join('');
-      if (!chtCurrentSym || !localSyms.includes(chtCurrentSym)) {
-        chtCurrentSym = localSyms[0];
-      }
-      sel.value = chtCurrentSym;
-    } else if (sel.options.length === 0) {
-      // Chưa có gì cả → hiện placeholder
-      sel.innerHTML = '<option value="">— chưa có data —</option>';
-    }
-    return;
-  }
 
   try {
     const snap = await window.fbGetDoc(window.fbDoc(window.db, 'candleManifest', uid));
@@ -6040,7 +5988,7 @@ Object.defineProperty(window, 'chtCurrentSym', { get: ()=>chtCurrentSym, set: v=
 function chtInitSymSelect(){
   chtLoadSymList();
   // Nếu đã login mà chart trống → tự load candles từ Firebase
-  if (!window.currentUser?.uid) return;
+  // no auth check needed
   setTimeout(async () => {
     const sym = chtCurrentSym || document.getElementById('cht-sym')?.value;
     const tf  = chtCurrentTF;
@@ -6114,7 +6062,7 @@ window.chtChangeSym = async (sym)=>{
     // Thử load từ Firebase
     const tfOrder=['m15','m5','m1','m30','h1','h4','D'];
     // Check manifest which TFs exist
-    const uid = window.currentUser?.uid;
+    const uid=(window.currentUser&&window.currentUser.uid)||'shared_user';
     let loadedTF = null;
     if (uid) {
       try {
