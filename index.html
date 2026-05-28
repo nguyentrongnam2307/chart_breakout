@@ -777,6 +777,54 @@ tbody tr:hover td { background: #faf9f7; }
       <button onclick="chtExitFocus()" style="flex-shrink:0;padding:2px 10px;border-radius:4px;border:1px solid #c9a800;background:#fffbe6;color:#7a6200;font-size:0.7rem;font-weight:700;cursor:pointer;font-family:inherit;">✕ Thoát</button>
     </div>
 
+    <!-- ══ MARKET STRUCTURE (5,5) PANEL ══ -->
+    <div id="ms55-panel" style="margin-bottom:8px;display:none;">
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;">
+        <!-- Left/Right + Tính lại + toggles -->
+        <span style="font-size:0.6rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--faint);font-weight:600;">Left/Right:</span>
+        <input id="ms55-left" type="number" min="1" max="50" value="5" style="width:40px;border:1px solid var(--border);border-radius:4px;padding:3px 5px;font-size:0.72rem;font-family:inherit;background:var(--surface);color:var(--ink);outline:none;">
+        <input id="ms55-right" type="number" min="1" max="50" value="5" style="width:40px;border:1px solid var(--border);border-radius:4px;padding:3px 5px;font-size:0.72rem;font-family:inherit;background:var(--surface);color:var(--ink);outline:none;">
+        <button onclick="ms55Compute()" style="background:var(--ink);color:#fff;border:none;border-radius:4px;padding:4px 12px;font-size:0.7rem;font-weight:700;cursor:pointer;font-family:inherit;">↻ Tính lại</button>
+        <label style="display:flex;align-items:center;gap:3px;font-size:0.68rem;color:var(--muted);cursor:pointer;">
+          <input type="checkbox" id="ms55-show-bos" checked style="accent-color:var(--ink);"> BOS
+        </label>
+        <label style="display:flex;align-items:center;gap:3px;font-size:0.68rem;color:var(--muted);cursor:pointer;">
+          <input type="checkbox" id="ms55-show-choch" checked style="accent-color:var(--ink);"> CHOCH
+        </label>
+        <label style="display:flex;align-items:center;gap:3px;font-size:0.68rem;color:var(--muted);cursor:pointer;">
+          <input type="checkbox" id="ms55-show-order" checked style="accent-color:#1a7a52;"> Order Box
+        </label>
+        <span style="width:1px;height:16px;background:var(--border);flex-shrink:0;"></span>
+        <!-- Order Setup inline -->
+        <span id="ms55-order-controls" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+          <span style="font-size:0.6rem;letter-spacing:1px;text-transform:uppercase;color:var(--faint);font-weight:600;">Order Setup</span>
+          <label style="display:flex;align-items:center;gap:3px;font-size:0.68rem;color:var(--muted);">RR
+            <input id="ms55-rr" type="number" min="0.5" max="10" step="0.5" value="2" style="width:40px;border:1px solid var(--border);border-radius:4px;padding:3px 5px;font-size:0.72rem;font-family:inherit;background:var(--surface);color:var(--ink);outline:none;">
+          </label>
+          <label style="display:flex;align-items:center;gap:3px;font-size:0.68rem;color:var(--muted);">Limit bars
+            <input id="ms55-limit-bars" type="number" min="1" max="50" value="5" style="width:40px;border:1px solid var(--border);border-radius:4px;padding:3px 5px;font-size:0.72rem;font-family:inherit;background:var(--surface);color:var(--ink);outline:none;">
+          </label>
+          <label style="display:flex;align-items:center;gap:3px;font-size:0.68rem;color:var(--muted);">Extend
+            <input id="ms55-extend" type="number" min="1" max="100" value="20" style="width:40px;border:1px solid var(--border);border-radius:4px;padding:3px 5px;font-size:0.72rem;font-family:inherit;background:var(--surface);color:var(--ink);outline:none;">
+          </label>
+          <label style="display:flex;align-items:center;gap:3px;font-size:0.68rem;color:var(--muted);">SL Pad
+            <input id="ms55-sl-pad" type="number" min="0" max="500" step="1" value="5" title="Nới SL thêm N points" style="width:40px;border:1px solid var(--border);border-radius:4px;padding:3px 5px;font-size:0.72rem;font-family:inherit;background:var(--surface);color:var(--ink);outline:none;"> pts
+          </label>
+          <label style="display:flex;align-items:center;gap:3px;font-size:0.68rem;color:var(--muted);cursor:pointer;">
+            <input type="checkbox" id="ms55-show-buy" checked style="accent-color:var(--blue);"> BUY
+          </label>
+          <label style="display:flex;align-items:center;gap:3px;font-size:0.68rem;color:var(--muted);cursor:pointer;">
+            <input type="checkbox" id="ms55-show-sell" checked style="accent-color:var(--red);"> SELL
+          </label>
+        </span>
+        <span id="ms55-status" style="font-size:0.6rem;color:var(--muted);margin-left:4px;"></span>
+      </div>
+
+      <!-- Order stats -->
+      <div id="ms55-order-stats" style="margin-top:8px;display:none;"></div>
+
+    </div>
+
     <!-- Chart container -->
     <div id="cht-container" style="width:100%;height:calc(100vh - 200px);min-height:340px;background:var(--surface);border:1px solid var(--border);border-radius:8px;position:relative;"
          ondragover="chtOnDragOver(event)" ondragleave="chtOnDragLeave(event)" ondrop="chtOnDrop(event)">
@@ -821,41 +869,6 @@ tbody tr:hover td { background: #faf9f7; }
       </div>
     </div>
     <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
-
-    <!-- ══ MARKET STRUCTURE (5,5) PANEL ══ -->
-    <div id="ms55-panel" style="margin-top:10px;padding-bottom:24px;display:none;">
-      <!-- Header -->
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;cursor:pointer;user-select:none;" onclick="ms55TogglePanel()">
-        <span style="font-size:0.6rem;letter-spacing:3px;text-transform:uppercase;color:var(--muted);font-weight:500;">📊 Market Structure (5,5)</span>
-        <div style="flex:1;height:1px;background:var(--border);"></div>
-        <span id="ms55-chevron" style="font-size:0.55rem;color:var(--faint);transition:transform .25s;transform:rotate(180deg);">▲</span>
-      </div>
-
-      <div id="ms55-body" style="display:none;">
-        <!-- Controls -->
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
-          <span style="font-size:0.62rem;color:var(--muted);font-weight:600;">Left/Right:</span>
-          <input id="ms55-left" type="number" min="1" max="50" value="5" style="width:46px;border:1px solid var(--border);border-radius:4px;padding:3px 6px;font-size:0.72rem;font-family:inherit;background:var(--surface);color:var(--ink);outline:none;">
-          <input id="ms55-right" type="number" min="1" max="50" value="5" style="width:46px;border:1px solid var(--border);border-radius:4px;padding:3px 6px;font-size:0.72rem;font-family:inherit;background:var(--surface);color:var(--ink);outline:none;">
-          <button onclick="ms55Compute()" style="background:var(--ink);color:#fff;border:none;border-radius:4px;padding:4px 14px;font-size:0.7rem;font-weight:700;cursor:pointer;font-family:inherit;">↻ Tính lại</button>
-          <label style="display:flex;align-items:center;gap:4px;font-size:0.68rem;color:var(--muted);cursor:pointer;">
-            <input type="checkbox" id="ms55-show-bos" checked style="accent-color:var(--ink);"> BOS
-          </label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:0.68rem;color:var(--muted);cursor:pointer;">
-            <input type="checkbox" id="ms55-show-choch" checked style="accent-color:var(--ink);"> CHOCH
-          </label>
-          <span id="ms55-status" style="font-size:0.62rem;color:var(--muted);margin-left:4px;"></span>
-        </div>
-
-        <!-- Summary cards -->
-        <div id="ms55-summary" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px;"></div>
-
-        <!-- Signal list -->
-        <div id="ms55-signals" style="border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--surface);">
-          <div style="padding:1.5rem;text-align:center;color:var(--muted);font-size:0.78rem;">Upload CSV trên chart để tính Market Structure (5,5)</div>
-        </div>
-      </div>
-    </div>
 
   </div>
 </div>
@@ -7493,57 +7506,120 @@ function ms55PivotLows(candles, L, R) {
 // - BUY  = close > pvtH và open <= pvtH  →  BOS nếu HH, CHOCH nếu LH
 // - SELL = close < pvtL và open >= pvtL  →  BOS nếu LL, CHOCH nếu HL
 // - Vẽ line từ barIndex của pivot → barIndex của nến break, tại mức pvtH/pvtL
-function ms55BuildBoxes(candles, L, R) {
+function ms55BuildBoxes(candles, L, R, limitBarsParam) {
+  const _limitBars = limitBarsParam || window._ms55LimitBars || 5;
   const highs = ms55PivotHighs(candles, L, R);
   const lows  = ms55PivotLows (candles, L, R);
 
-  // Đánh dấu pivot tại idx (đã offset -R trong hàm pivot)
   const phAt = {}; highs.forEach(p => phAt[p.idx] = p);
   const plAt = {}; lows .forEach(p => plAt[p.idx] = p);
 
-  // pvtH/pvtL: giá trị pivot hiện tại (không reset sau break)
-  // prevPH/prevPL: pivot trước đó để so sánh HH/LH, LL/HL
-  let pvtH = null, prevPH = null;  // {idx, price, time}
+  let pvtH = null, prevPH = null;
   let pvtL = null, prevPL = null;
-  let pvtHbarIdx = null, pvtLbarIdx = null;  // bar index của pivot
+
+  // SL tracking (Pine: slBuyLevel = low[rightLenH5] khi ph5 xảy ra, sau đó min với low)
+  let slBuyLevel  = null;  // low tại pivot high bar
+  let slSellLevel = null;  // high tại pivot low bar
+
+  // Pending order (Pine: lưu khi buy5/sell5, check N nến sau)
+  let pendingBuy  = null;  // { entry, sl, barIdx, time }
+  let pendingSell = null;
 
   const boxes = [];
 
   for (let i = 0; i < candles.length; i++) {
-    // ── Check break TRƯỚC khi update pivot ──
-    // (Pine Script: pvtH được cập nhật ở bar confirm = bar trung tâm + R,
-    //  nhưng break chỉ xảy ra ở các bar SAU đó → check break trước, update pivot sau)
-    if (i > 0) {
-      const c = candles[i];
+    const c = candles[i];
 
-      // BUY: Pine Script: buy5 := close > pvtH5 and open <= pvtH5
+    // ── SL tracking: cập nhật min/max low/high liên tục ──
+    if (slBuyLevel  !== null && !(pvtH && phAt[i])) slBuyLevel  = Math.min(slBuyLevel,  c.low);
+    if (slSellLevel !== null && !(pvtL && plAt[i])) slSellLevel = Math.max(slSellLevel, c.high);
+
+    if (i > 0) {
+      // BUY break
       if (pvtH && c.close > pvtH.price && c.open <= pvtH.price) {
         const isBOS = prevPH ? pvtH.price > prevPH.price : false;
         boxes.push({
-          timeL      : pvtH.time,
-          timeR      : c.time,
-          breakPrice : pvtH.price,
-          type       : isBOS ? 'BOS' : 'CHOCH',
-          dir        : 'up',
+          timeL: pvtH.time, timeR: c.time,
+          breakPrice: pvtH.price,
+          type: isBOS ? 'BOS' : 'CHOCH', dir: 'up',
         });
+        // Lưu pending BUY order
+        if (slBuyLevel !== null) {
+          pendingBuy = { entry: pvtH.price, sl: slBuyLevel, barIdx: i, time: c.time };
+        }
       }
 
-      // SELL: Pine Script: sell5 := close < pvtL5 and open >= pvtL5
+      // SELL break
       if (pvtL && c.close < pvtL.price && c.open >= pvtL.price) {
         const isBOS = prevPL ? pvtL.price < prevPL.price : false;
         boxes.push({
-          timeL      : pvtL.time,
-          timeR      : c.time,
-          breakPrice : pvtL.price,
-          type       : isBOS ? 'BOS' : 'CHOCH',
-          dir        : 'dn',
+          timeL: pvtL.time, timeR: c.time,
+          breakPrice: pvtL.price,
+          type: isBOS ? 'BOS' : 'CHOCH', dir: 'dn',
         });
+        // Lưu pending SELL order
+        if (slSellLevel !== null) {
+          pendingSell = { entry: pvtL.price, sl: slSellLevel, barIdx: i, time: c.time };
+        }
+      }
+
+      // ── Check BUY limit: giá chạm lại entry trong limitBars ──
+      if (pendingBuy) {
+        const elapsed = i - pendingBuy.barIdx;
+        const limitBars = 5; // default, sẽ đọc từ UI khi vẽ
+        if (elapsed > 0 && elapsed <= limitBars) {
+          if (c.low <= pendingBuy.entry) {
+            // Limit touched — ghi nhận order box (RR sẽ đọc khi vẽ)
+            boxes.push({
+              kind       : 'order',
+              dir        : 'buy',
+              entry      : pendingBuy.entry,
+              sl         : pendingBuy.sl,
+              barIdx     : i,
+              barIdxEnd  : i,   // sẽ extend khi vẽ
+              time       : c.time,
+              triggerBarIdx: pendingBuy.barIdx,
+            });
+            pendingBuy = null;
+          }
+        } else if (elapsed > limitBars) {
+          pendingBuy = null;
+        }
+      }
+
+      // ── Check SELL limit ──
+      if (pendingSell) {
+        const elapsed = i - pendingSell.barIdx;
+        const limitBars = 5;
+        if (elapsed > 0 && elapsed <= limitBars) {
+          if (c.high >= pendingSell.entry) {
+            boxes.push({
+              kind       : 'order',
+              dir        : 'sell',
+              entry      : pendingSell.entry,
+              sl         : pendingSell.sl,
+              barIdx     : i,
+              barIdxEnd  : i,
+              time       : c.time,
+              triggerBarIdx: pendingSell.barIdx,
+            });
+            pendingSell = null;
+          }
+        } else if (elapsed > limitBars) {
+          pendingSell = null;
+        }
       }
     }
 
     // ── Cập nhật pivot SAU khi check break ──
-    if (phAt[i]) { prevPH = pvtH; pvtH = phAt[i]; }
-    if (plAt[i]) { prevPL = pvtL; pvtL = plAt[i]; }
+    if (phAt[i]) {
+      prevPH = pvtH; pvtH = phAt[i];
+      slBuyLevel = c.low; // reset SL từ low của pivot bar
+    }
+    if (plAt[i]) {
+      prevPL = pvtL; pvtL = plAt[i];
+      slSellLevel = c.high; // reset SL từ high của pivot bar
+    }
   }
   return boxes;
 }
@@ -7639,6 +7715,125 @@ function ms55DrawBoxes() {
         ctx.fillText(box.type, x2 + 3, yBreak + 3);
       }
     });
+
+    // ── Vẽ Order Setup boxes ──────────────────────────────
+    const showOrder  = document.getElementById('ms55-show-order')?.checked !== false;
+    const showBuyBox  = document.getElementById('ms55-show-buy')?.checked !== false;
+    const showSellBox = document.getElementById('ms55-show-sell')?.checked !== false;
+    const rrRatio    = parseFloat(document.getElementById('ms55-rr')?.value)    || 2;
+    const extendBars = parseInt(document.getElementById('ms55-extend')?.value)  || 20;
+    const slPadPts   = parseFloat(document.getElementById('ms55-sl-pad')?.value) || 0;
+    // 1 point = 0.00001 cho 5-digit pairs; tự detect pip size từ entry nếu có
+    const slPad = slPadPts * 0.00001;
+
+    if (showOrder && chtAllCandles && chtAllCandles.length) {
+      const allCandles = chtAllCandles;
+      // Tính pixel-per-bar từ scale
+      let barW = 6;
+      try {
+        const range = tsScale.getVisibleRange();
+        if (range) {
+          const x_a = tsScale.timeToCoordinate(range.from);
+          const x_b = tsScale.timeToCoordinate(range.to);
+          const visCandles = allCandles.filter(c => c.time >= range.from && c.time <= range.to);
+          if (visCandles.length > 1) barW = Math.abs(x_b - x_a) / visCandles.length;
+        }
+      } catch(e) {}
+
+      const orderBoxes = toShow.filter(b => b.kind === 'order');
+      orderBoxes.forEach(ob => {
+        if (ob.dir === 'buy'  && !showBuyBox)  return;
+        if (ob.dir === 'sell' && !showSellBox) return;
+
+        // Tìm time của bar (barIdx + extendBars) — cần map barIdx → time
+        const trigCandle = allCandles[ob.barIdx];
+        if (!trigCandle) return;
+
+        // x start = nến limit chạm, x end = +extend bars
+        let xStart, xEnd;
+        try {
+          xStart = tsScale.timeToCoordinate(trigCandle.time);
+          const endIdx = Math.min(ob.barIdx + extendBars, allCandles.length - 1);
+          xEnd   = tsScale.timeToCoordinate(allCandles[endIdx].time);
+        } catch(e) { return; }
+        if (xStart == null || xEnd == null) return;
+        if (xEnd < 0 || xStart > canvas.width) return;
+
+        const dist = ob.dir === 'buy'
+          ? (ob.entry - ob.sl) + slPad
+          : (ob.sl    - ob.entry) + slPad;
+        if (dist <= 0) return;
+
+        // ── Vẽ SL box ──
+        const slTop    = ob.dir === 'buy' ? ob.entry        : ob.sl + slPad;
+        const slBot    = ob.dir === 'buy' ? ob.sl - slPad   : ob.entry;
+        let ySLTop, ySLBot;
+        try {
+          ySLTop = chtSeries.priceToCoordinate(slTop);
+          ySLBot = chtSeries.priceToCoordinate(slBot);
+        } catch(e) { return; }
+        if (ySLTop == null || ySLBot == null) return;
+
+        ctx.fillStyle   = 'rgba(192,57,43,0.18)';
+        ctx.strokeStyle = 'rgba(192,57,43,0.55)';
+        ctx.lineWidth   = 1;
+        ctx.setLineDash([3,3]);
+        ctx.beginPath();
+        ctx.rect(xStart, ySLTop, xEnd - xStart, ySLBot - ySLTop);
+        ctx.fill(); ctx.stroke();
+        ctx.setLineDash([]);
+        // SL label
+        ctx.font      = 'bold 9px sans-serif';
+        ctx.fillStyle = 'rgba(192,57,43,0.9)';
+        ctx.fillText('SL', xStart + 3, ySLBot - 3);
+
+        // ── Vẽ TP boxes theo từng nấc ──
+        const steps = Math.max(1, Math.floor(rrRatio));
+        for (let s = 1; s <= steps; s++) {
+          const tpBot = ob.dir === 'buy'
+            ? ob.entry + dist * (s - 1)
+            : ob.entry - dist * s;
+          const tpTop = ob.dir === 'buy'
+            ? ob.entry + dist * s
+            : ob.entry - dist * (s - 1);
+
+          let yTPTop, yTPBot;
+          try {
+            yTPTop = chtSeries.priceToCoordinate(tpTop);
+            yTPBot = chtSeries.priceToCoordinate(tpBot);
+          } catch(e) { continue; }
+          if (yTPTop == null || yTPBot == null) continue;
+
+          ctx.fillStyle   = ob.dir === 'buy' ? 'rgba(26,122,82,0.15)' : 'rgba(26,122,82,0.15)';
+          ctx.strokeStyle = ob.dir === 'buy' ? 'rgba(26,122,82,0.50)' : 'rgba(26,122,82,0.50)';
+          ctx.lineWidth   = 1;
+          ctx.setLineDash([3,3]);
+          ctx.beginPath();
+          ctx.rect(xStart, yTPTop, xEnd - xStart, yTPBot - yTPTop);
+          ctx.fill(); ctx.stroke();
+          ctx.setLineDash([]);
+
+          // TP label
+          ctx.font      = 'bold 9px sans-serif';
+          ctx.fillStyle = 'rgba(26,122,82,0.9)';
+          const labelY = ob.dir === 'buy' ? yTPTop + 10 : yTPBot - 3;
+          ctx.fillText('TP' + s, xStart + 3, labelY);
+        }
+
+        // Entry line
+        let yEntry;
+        try { yEntry = chtSeries.priceToCoordinate(ob.entry); } catch(e) { return; }
+        if (yEntry == null) return;
+        ctx.beginPath();
+        ctx.moveTo(xStart, yEntry);
+        ctx.lineTo(xEnd,   yEntry);
+        ctx.strokeStyle = ob.dir === 'buy' ? 'rgba(44,74,124,0.8)' : 'rgba(192,57,43,0.8)';
+        ctx.lineWidth   = 1.5;
+        ctx.setLineDash([4,3]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      });
+    }
   });
 }
 
@@ -7657,53 +7852,115 @@ function ms55DestroyCanvas() {
 window.ms55Compute = function() {
   const candles = chtAllCandles;
   if (!candles || candles.length < 20) {
-    document.getElementById('ms55-signals').innerHTML =
-      '<div style="padding:1.5rem;text-align:center;color:var(--muted);font-size:0.78rem;">Chưa có đủ dữ liệu.</div>';
     document.getElementById('ms55-status').textContent = '';
-    document.getElementById('ms55-summary').innerHTML = '';
     ms55DestroyCanvas();
     return;
   }
 
   const L = Math.max(1, parseInt(document.getElementById('ms55-left')?.value)||5);
   const R = Math.max(1, parseInt(document.getElementById('ms55-right')?.value)||5);
-  ms55Boxes = ms55BuildBoxes(candles, L, R);
+  window._ms55LimitBars = Math.max(1, parseInt(document.getElementById('ms55-limit-bars')?.value)||5);
+  ms55Boxes = ms55BuildBoxes(candles, L, R, window._ms55LimitBars);
 
-  const bosUp   = ms55Boxes.filter(b=>b.type==='BOS'  &&b.dir==='up').length;
-  const bosDn   = ms55Boxes.filter(b=>b.type==='BOS'  &&b.dir==='dn').length;
-  const chUp    = ms55Boxes.filter(b=>b.type==='CHOCH'&&b.dir==='up').length;
-  const chDn    = ms55Boxes.filter(b=>b.type==='CHOCH'&&b.dir==='dn').length;
-  const last    = ms55Boxes[ms55Boxes.length-1]||null;
+  const signalBoxes = ms55Boxes.filter(b => b.kind !== 'order');
+  const bosUp   = signalBoxes.filter(b=>b.type==='BOS'  &&b.dir==='up').length;
+  const bosDn   = signalBoxes.filter(b=>b.type==='BOS'  &&b.dir==='dn').length;
+  const chUp    = signalBoxes.filter(b=>b.type==='CHOCH'&&b.dir==='up').length;
+  const chDn    = signalBoxes.filter(b=>b.type==='CHOCH'&&b.dir==='dn').length;
+  const last    = signalBoxes[signalBoxes.length-1]||null;
 
   document.getElementById('ms55-status').textContent =
-    `${candles.length} nến · ${ms55Boxes.length} boxes  BOS↑${bosUp}↓${bosDn}  CHOCH↑${chUp}↓${chDn}`;
+    `${candles.length} nến · ${signalBoxes.length} boxes  BOS↑${bosUp}↓${bosDn}  CHOCH↑${chUp}↓${chDn}`;
 
   function fmtT(u){const d=new Date(u*1000);return`${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')} ${String(d.getUTCDate()).padStart(2,'0')}/${String(d.getUTCMonth()+1).padStart(2,'0')}`;}
 
-  document.getElementById('ms55-summary').innerHTML = `
-    <div class="ms55-card"><div class="ms55-card-lbl">Box mới nhất</div>
-      <div class="ms55-card-val ${last?(last.dir==='up'?'up':'dn'):''}">
-        ${last?(last.dir==='up'?'↑':'↓')+' '+last.type:'—'}</div>
-      <div style="font-size:0.62rem;color:var(--muted)">${last?fmtT(last.timeL):''}</div></div>
-    <div class="ms55-card"><div class="ms55-card-lbl">BOS ↑/↓</div>
-      <div class="ms55-card-val"><span style="color:var(--blue)">${bosUp}</span>/<span style="color:var(--red)">${bosDn}</span></div></div>
-    <div class="ms55-card"><div class="ms55-card-lbl">CHOCH ↑/↓</div>
-      <div class="ms55-card-val"><span style="color:var(--green)">${chUp}</span>/<span style="color:#e67e22">${chDn}</span></div></div>
-    <div class="ms55-card"><div class="ms55-card-lbl">Tổng boxes</div>
-      <div class="ms55-card-val">${ms55Boxes.length}</div></div>`;
 
-  // Table
-  const recent = ms55Boxes.slice(-60).reverse();
-  const bCls = b => b.type==='BOS'&&b.dir==='up'?'ms55-bos-up':b.type==='BOS'&&b.dir==='dn'?'ms55-bos-dn':b.type==='CHOCH'&&b.dir==='up'?'ms55-choch-up':'ms55-choch-dn';
-  document.getElementById('ms55-signals').innerHTML = recent.length ? `
-    <div class="ms55-sig-row ms55-thead"><span>Thời gian</span><span>Loại</span><span>Hướng</span><span style="text-align:right">Giá break</span></div>
-    ${recent.map(b=>`<div class="ms55-sig-row">
-      <span style="color:var(--muted);font-size:0.68rem">${fmtT(b.timeL)}</span>
-      <span class="ms55-badge ${bCls(b)}">${b.type}</span>
-      <span style="font-weight:600"><span class="ms55-dot ${b.dir==='up'?'ms55-dot-up':'ms55-dot-dn'}"></span> ${b.dir==='up'?'↑ TĂNG':'↓ GIẢM'}</span>
-      <span style="color:var(--muted);font-size:0.68rem;text-align:right">${b.breakPrice.toFixed(5)}</span>
-    </div>`).join('')}` :
-    '<div style="padding:1.2rem;text-align:center;color:var(--muted);font-size:0.75rem">Không có tín hiệu.</div>';
+
+  // ── Order stats ──────────────────────────────────────────
+  const orderBoxes = ms55Boxes.filter(b => b.kind === 'order');
+  const rrVal      = parseFloat(document.getElementById('ms55-rr')?.value) || 2;
+  const slPadPts2  = parseFloat(document.getElementById('ms55-sl-pad')?.value) || 0;
+  const slPad2     = slPadPts2 * 0.00001;
+
+  let buyTotal=0, sellTotal=0;
+  const tpHits   = {};   // tpHits[s] = count
+  const steps2   = Math.max(1, Math.floor(rrVal));
+  for (let s=1;s<=steps2;s++) tpHits[s]=0;
+  let slHitBuy=0, slHitSell=0;
+
+  orderBoxes.forEach(ob => {
+    const dist = ob.dir==='buy' ? (ob.entry - ob.sl)+slPad2 : (ob.sl - ob.entry)+slPad2;
+    if (dist<=0) return;
+    if (ob.dir==='buy')  buyTotal++;
+    else                 sellTotal++;
+
+    // Check nến sau trigger đến hết candles
+    const startI = ob.barIdx + 1;
+    let slPrice  = ob.dir==='buy' ? ob.sl - slPad2 : ob.sl + slPad2;
+    let hitSL=false;
+    const tpPrices = [];
+    for (let s=1;s<=steps2;s++) {
+      tpPrices.push(ob.dir==='buy' ? ob.entry+dist*s : ob.entry-dist*s);
+    }
+    const tpReached = new Array(steps2).fill(false);
+    for (let k=startI; k<candles.length && k<startI+200; k++) {
+      const ck = candles[k];
+      if (ob.dir==='buy') {
+        if (ck.low <= slPrice) { hitSL=true; break; }
+        for (let s=0;s<steps2;s++) {
+          if (!tpReached[s] && ck.high >= tpPrices[s]) tpReached[s]=true;
+        }
+      } else {
+        if (ck.high >= slPrice) { hitSL=true; break; }
+        for (let s=0;s<steps2;s++) {
+          if (!tpReached[s] && ck.low <= tpPrices[s]) tpReached[s]=true;
+        }
+      }
+    }
+    if (hitSL) { if(ob.dir==='buy') slHitBuy++; else slHitSell++; }
+    tpReached.forEach((hit,i)=>{ if(hit) tpHits[i+1]++; });
+  });
+
+  const totalOrders = buyTotal+sellTotal;
+  const totalSLHit  = slHitBuy+slHitSell;
+  const tpRows = Array.from({length:steps2},(_,i)=>{
+    const s=i+1;
+    const pct = totalOrders ? (tpHits[s]/totalOrders*100).toFixed(0) : 0;
+    return `<div style="display:flex;align-items:center;gap:8px;">
+      <span style="font-size:0.65rem;color:#1a7a52;font-weight:600;min-width:36px;">TP${s}</span>
+      <div style="flex:1;background:var(--border);border-radius:3px;height:7px;overflow:hidden;">
+        <div style="width:${pct}%;background:#1a7a52;height:100%;border-radius:3px;"></div></div>
+      <span style="font-size:0.65rem;font-weight:700;color:#1a7a52;min-width:70px;text-align:right">${tpHits[s]}/${totalOrders} (${pct}%)</span>
+    </div>`;
+  }).join('');
+  const slPct = totalOrders ? (totalSLHit/totalOrders*100).toFixed(0) : 0;
+
+  document.getElementById('ms55-order-stats').style.display = totalOrders ? '' : 'none';
+  document.getElementById('ms55-order-stats').innerHTML = totalOrders ? `
+    <div style="border:1px solid var(--border);border-radius:6px;padding:10px 14px;background:var(--surface);">
+      <div style="font-size:0.6rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--faint);font-weight:600;margin-bottom:8px;">Thống kê lệnh Order Setup</div>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-bottom:10px;">
+        <div style="text-align:center;padding:6px;background:var(--bg);border-radius:4px;">
+          <div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Tổng lệnh</div>
+          <div style="font-size:1.1rem;font-weight:700;color:var(--ink);">${totalOrders}</div>
+          <div style="font-size:0.58rem;color:var(--muted);">BUY ${buyTotal} · SELL ${sellTotal}</div>
+        </div>
+        <div style="text-align:center;padding:6px;background:var(--bg);border-radius:4px;">
+          <div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Hit SL</div>
+          <div style="font-size:1.1rem;font-weight:700;color:var(--red);">${totalSLHit} <span style="font-size:0.7rem;font-weight:400;">(${slPct}%)</span></div>
+          <div style="font-size:0.58rem;color:var(--muted);">B${slHitBuy} · S${slHitSell}</div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        ${tpRows}
+        <div style="display:flex;align-items:center;gap:8px;margin-top:2px;">
+          <span style="font-size:0.65rem;color:var(--red);font-weight:600;min-width:36px;">SL</span>
+          <div style="flex:1;background:var(--border);border-radius:3px;height:7px;overflow:hidden;">
+            <div style="width:${slPct}%;background:#c0392b;height:100%;border-radius:3px;"></div></div>
+          <span style="font-size:0.65rem;font-weight:700;color:var(--red);min-width:70px;text-align:right">${totalSLHit}/${totalOrders} (${slPct}%)</span>
+        </div>
+      </div>
+    </div>` : '';
 
   // Vẽ lên chart
   if (!ms55Active) {
@@ -7717,6 +7974,27 @@ window.ms55Compute = function() {
 };
 
 // Toggle
+// Toggle order controls visibility
+document.addEventListener('DOMContentLoaded', () => {
+  const orderChk = document.getElementById('ms55-show-order');
+  const orderCtrl = document.getElementById('ms55-order-controls');
+  if (orderChk && orderCtrl) {
+    orderChk.addEventListener('change', () => {
+      orderCtrl.style.opacity = orderChk.checked ? '1' : '0.4';
+      ms55DrawBoxes();
+    });
+  }
+  // Re-draw on control change
+  // RR và SL Pad ảnh hưởng thống kê → cần tính lại toàn bộ
+  ['ms55-rr','ms55-sl-pad'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', () => ms55Compute());
+  });
+  // Các control còn lại chỉ cần vẽ lại chart
+  ['ms55-limit-bars','ms55-extend','ms55-show-buy','ms55-show-sell'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', () => ms55DrawBoxes());
+  });
+});
+
 window.ms55Toggle = function() {
   const panel = document.getElementById('ms55-panel');
   const btn   = document.getElementById('cht-ms55-btn');
@@ -7732,17 +8010,8 @@ window.ms55Toggle = function() {
     btn.style.background  = 'var(--ink)';
     btn.style.color       = '#fff';
     btn.style.borderColor = 'var(--ink)';
-    setTimeout(()=>panel.scrollIntoView({behavior:'smooth',block:'start'}),50);
     window.ms55Compute();
   }
-};
-
-window.ms55TogglePanel = function() {
-  const body = document.getElementById('ms55-body');
-  const chev = document.getElementById('ms55-chevron');
-  const col  = body.style.display === 'none';
-  body.style.display    = col ? '' : 'none';
-  chev.style.transform  = col ? '' : 'rotate(180deg)';
 };
 
 // ms55 được trigger trực tiếp từ chtRenderTF và chtLoad — không cần hook ở đây
