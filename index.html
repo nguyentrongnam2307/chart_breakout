@@ -811,6 +811,14 @@ tbody tr:hover td { background: #faf9f7; }
           <label style="display:flex;align-items:center;gap:3px;font-size:0.68rem;color:var(--muted);">SL Pad
             <input id="ms55-sl-pad" type="number" min="0" max="500" step="1" value="5" title="Nới SL thêm N points" style="width:40px;border:1px solid var(--border);border-radius:4px;padding:3px 5px;font-size:0.72rem;font-family:inherit;background:var(--surface);color:var(--ink);outline:none;"> pts
           </label>
+          <label style="display:flex;align-items:center;gap:3px;font-size:0.68rem;color:var(--muted);" title="Dời SL về entry (BE) sau khi đạt TPn. OFF = không dời">BE tại
+            <select id="ms55-be-trigger" style="border:1px solid var(--border);border-radius:4px;padding:2px 5px;font-size:0.72rem;font-family:inherit;background:var(--surface);color:var(--ink);outline:none;cursor:pointer;">
+              <option value="1">TP1</option>
+              <option value="2">TP2</option>
+              <option value="3">TP3</option>
+              <option value="0">OFF</option>
+            </select>
+          </label>
           <label style="display:flex;align-items:center;gap:3px;font-size:0.68rem;color:var(--muted);cursor:pointer;">
             <input type="checkbox" id="ms55-show-buy" checked style="accent-color:var(--blue);"> BUY
           </label>
@@ -8063,6 +8071,8 @@ window.ms55Compute = function() {
   const _refPrice3  = chtAllCandles && chtAllCandles.length ? chtAllCandles[chtAllCandles.length-1].close : 1;
   const _pointSize3 = _refPrice3 > 20 ? 0.001 : 0.00001;
   const slPad2     = slPadPts2 * _pointSize3;
+  // beTrigger: 0=OFF, 1=sau TP1, 2=sau TP2, 3=sau TP3
+  const beTrigger  = parseInt(document.getElementById('ms55-be-trigger')?.value ?? '1');
 
   let buyTotal=0, sellTotal=0;
   let bosTotal=0, chochTotal=0;   // đếm theo signal type
@@ -8072,7 +8082,7 @@ window.ms55Compute = function() {
   const tpHits   = {};
   for (let s=1;s<=steps2;s++) { tpHits[s]=0; bosTP[s]=0; chochTP[s]=0; }
   let slHitBuy=0, slHitSell=0;
-  let beHitBuy=0, beHitSell=0;  // BE: đạt TP1 rồi quay về entry
+  let beHitBuy=0, beHitSell=0;  // BE: đạt TPn rồi quay về entry
   let bosSL=0, chochSL=0, bosBE=0, chochBE=0;
 
   orderBoxes.forEach(ob => {
@@ -8092,14 +8102,15 @@ window.ms55Compute = function() {
       tpPrices.push(ob.dir==='buy' ? ob.entry+dist*s : ob.entry-dist*s);
     }
     const tpReached = new Array(steps2).fill(false);
-    let tp1Reached = false;  // đã đạt RR 1:1
-    let hitBE = false;       // sau TP1 quay về entry
+    // beTriggerReached: true khi đã đạt đủ TPn theo setting
+    let beTriggerReached = false;
+    let hitBE = false;       // sau TPn quay về entry
 
     for (let k=startI; k<candles.length && k<startI+200; k++) {
       const ck = candles[k];
       if (ob.dir==='buy') {
-        // Nếu đã đạt TP1 → SL được dời về entry (BE), check giá chạm entry
-        if (tp1Reached) {
+        // Nếu BE đang active (đã đạt TPn): SL dời về entry, check chạm entry
+        if (beTriggerReached) {
           if (ck.low <= ob.entry) { hitBE = true; break; }
         } else {
           if (ck.low <= slPrice) { hitSL=true; break; }
@@ -8107,11 +8118,12 @@ window.ms55Compute = function() {
         for (let s=0;s<steps2;s++) {
           if (!tpReached[s] && ck.high >= tpPrices[s]) {
             tpReached[s]=true;
-            if (s===0) tp1Reached = true;  // TP1 đã đạt
+            // Kích hoạt BE khi đạt đúng beTrigger (và beTrigger > 0)
+            if (beTrigger > 0 && (s+1) === beTrigger) beTriggerReached = true;
           }
         }
       } else {
-        if (tp1Reached) {
+        if (beTriggerReached) {
           if (ck.high >= ob.entry) { hitBE = true; break; }
         } else {
           if (ck.high >= slPrice) { hitSL=true; break; }
@@ -8119,7 +8131,7 @@ window.ms55Compute = function() {
         for (let s=0;s<steps2;s++) {
           if (!tpReached[s] && ck.low <= tpPrices[s]) {
             tpReached[s]=true;
-            if (s===0) tp1Reached = true;
+            if (beTrigger > 0 && (s+1) === beTrigger) beTriggerReached = true;
           }
         }
       }
@@ -8192,9 +8204,9 @@ window.ms55Compute = function() {
           <div style="font-size:0.58rem;color:var(--muted);">B${slHitBuy} · S${slHitSell}</div>
         </div>
         <div style="text-align:center;padding:6px;background:#fffbf0;border-radius:4px;border:1px solid #e8d88a;">
-          <div style="font-size:0.6rem;color:#7a6a1a;margin-bottom:2px;">BE (≥TP1→Entry)</div>
-          <div style="font-size:1.1rem;font-weight:700;color:#b8860b;">${totalBEHit} <span style="font-size:0.7rem;font-weight:400;">(${bePct}%)</span></div>
-          <div style="font-size:0.58rem;color:#7a6a1a;">B${beHitBuy} · S${beHitSell}</div>
+          <div style="font-size:0.6rem;color:#7a6a1a;margin-bottom:2px;">${beTrigger>0?`BE (≥TP${beTrigger}→Entry)`:'BE (OFF)'}</div>
+          <div style="font-size:1.1rem;font-weight:700;color:#b8860b;">${beTrigger>0?totalBEHit:'—'} <span style="font-size:0.7rem;font-weight:400;">${beTrigger>0?`(${bePct}%)`:''}</span></div>
+          <div style="font-size:0.58rem;color:#7a6a1a;">${beTrigger>0?`B${beHitBuy} · S${beHitSell}`:'Dời SL tắt'}</div>
         </div>
       </div>
 
@@ -8206,7 +8218,7 @@ window.ms55Compute = function() {
       </div>
 
       <!-- BOS vs CHOCH breakdown -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
         <!-- BOS -->
         <div style="border:1px solid var(--border);border-radius:5px;padding:8px 10px;">
           <div style="font-size:0.58rem;letter-spacing:2px;text-transform:uppercase;color:rgba(0,0,0,0.6);font-weight:700;margin-bottom:6px;">
@@ -8230,6 +8242,286 @@ window.ms55Compute = function() {
           </div>
         </div>
       </div>
+
+      ${(()=>{
+        /* ═══════════════════════════════════════════════════════
+           BLOCK 1 — Breakdown theo khung giờ (UTC)
+           Nhóm orderBoxes theo giờ, tính TP1/SL/BE từng slot
+        ═══════════════════════════════════════════════════════ */
+        const HOUR_SLOTS = [
+          {label:'00–02',from:0,to:2},{label:'02–04',from:2,to:4},
+          {label:'04–06',from:4,to:6},{label:'06–08',from:6,to:8},
+          {label:'08–10',from:8,to:10},{label:'10–12',from:10,to:12},
+          {label:'12–14',from:12,to:14},{label:'14–16',from:14,to:16},
+          {label:'16–18',from:16,to:18},{label:'18–20',from:18,to:20},
+          {label:'20–22',from:20,to:22},{label:'22–24',from:22,to:24},
+        ];
+
+        // Re-evaluate each order outcome per slot
+        const slotData = HOUR_SLOTS.map(slot=>{
+          const slotObs = orderBoxes.filter(ob=>{
+            const h = new Date(ob.time*1000).getUTCHours();
+            return h >= slot.from && h < slot.to;
+          });
+          let tp1=0,sl=0,be=0,tot=slotObs.length;
+          slotObs.forEach(ob=>{
+            const dist = ob.dir==='buy'?(ob.entry-ob.sl)+slPad2:(ob.sl-ob.entry)+slPad2;
+            if(dist<=0)return;
+            const startI=ob.barIdx+1;
+            const tpPrices_s=[];
+            for(let s=1;s<=steps2;s++) tpPrices_s.push(ob.dir==='buy'?ob.entry+dist*s:ob.entry-dist*s);
+            const tpReached_s=new Array(steps2).fill(false);
+            let beTrigReached=false,hitSL=false,hitBE=false;
+            for(let k=startI;k<candles.length&&k<startI+200;k++){
+              const ck=candles[k];
+              if(ob.dir==='buy'){
+                if(beTrigReached){if(ck.low<=ob.entry){hitBE=true;break;}}
+                else{if(ck.low<=(ob.sl-slPad2)){hitSL=true;break;}}
+                for(let s=0;s<steps2;s++){if(!tpReached_s[s]&&ck.high>=tpPrices_s[s]){tpReached_s[s]=true;if(beTrigger>0&&(s+1)===beTrigger)beTrigReached=true;}}
+              }else{
+                if(beTrigReached){if(ck.high>=ob.entry){hitBE=true;break;}}
+                else{if(ck.high>=(ob.sl+slPad2)){hitSL=true;break;}}
+                for(let s=0;s<steps2;s++){if(!tpReached_s[s]&&ck.low<=tpPrices_s[s]){tpReached_s[s]=true;if(beTrigger>0&&(s+1)===beTrigger)beTrigReached=true;}}
+              }
+            }
+            if(hitSL)sl++;
+            else if(hitBE)be++;
+            else if(tpReached_s[0])tp1++;
+          });
+          return{...slot,tp1,sl,be,tot};
+        }).filter(s=>s.tot>0);
+
+        if(!slotData.length) return '';
+        const maxTot = Math.max(...slotData.map(s=>s.tot));
+
+        const rows = slotData.map(s=>{
+          const tp1Pct = s.tot?(s.tp1/s.tot*100).toFixed(0):0;
+          const slPct2 = s.tot?(s.sl/s.tot*100).toFixed(0):0;
+          const bePct2 = s.tot?(s.be/s.tot*100).toFixed(0):0;
+          const barW = Math.round((s.tot/maxTot)*80);
+          // Highlight giờ tốt nhất (win rate cao nhất, ít nhất 2 lệnh)
+          const isHot = s.tot>=2 && s.tp1/s.tot===Math.max(...slotData.filter(x=>x.tot>=2).map(x=>x.tp1/x.tot||0));
+          return `<tr style="${isHot?'background:#f0f8f2;':''}">
+            <td style="padding:4px 8px;font-size:0.7rem;font-weight:700;color:var(--ink);white-space:nowrap;">${s.label}${isHot?' ★':''}</td>
+            <td style="padding:4px 8px;">
+              <div style="display:flex;align-items:center;gap:4px;">
+                <div style="width:${barW}px;height:6px;border-radius:3px;background:var(--border);overflow:hidden;position:relative;min-width:4px;">
+                  <div style="position:absolute;left:0;top:0;height:100%;width:${tp1Pct}%;background:#1a7a52;border-radius:3px 0 0 3px;"></div>
+                </div>
+                <span style="font-size:0.63rem;color:var(--muted);">${s.tot}</span>
+              </div>
+            </td>
+            <td style="padding:4px 8px;text-align:right;font-size:0.68rem;font-weight:700;color:#1a7a52;">${tp1Pct}%</td>
+            <td style="padding:4px 8px;text-align:right;font-size:0.68rem;color:#b8860b;">${bePct2}%</td>
+            <td style="padding:4px 8px;text-align:right;font-size:0.68rem;color:#c0392b;">${slPct2}%</td>
+          </tr>`;
+        }).join('');
+
+        return `<div style="border:1px solid var(--border);border-radius:5px;padding:8px 10px;margin-bottom:10px;">
+          <div style="font-size:0.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--faint);font-weight:600;margin-bottom:8px;">
+            📅 Breakdown theo khung giờ (UTC) <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted);">★ giờ win rate cao nhất</span>
+          </div>
+          <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;min-width:260px;">
+              <thead>
+                <tr style="border-bottom:1px solid var(--border);">
+                  <th style="padding:3px 8px;text-align:left;font-size:0.55rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--faint);font-weight:500;">Giờ</th>
+                  <th style="padding:3px 8px;text-align:left;font-size:0.55rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--faint);font-weight:500;">Lệnh</th>
+                  <th style="padding:3px 8px;text-align:right;font-size:0.55rem;letter-spacing:1.5px;text-transform:uppercase;color:#1a7a52;font-weight:600;">TP1</th>
+                  <th style="padding:3px 8px;text-align:right;font-size:0.55rem;letter-spacing:1.5px;text-transform:uppercase;color:#b8860b;font-weight:600;">BE</th>
+                  <th style="padding:3px 8px;text-align:right;font-size:0.55rem;letter-spacing:1.5px;text-transform:uppercase;color:#c0392b;font-weight:600;">SL</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div>`;
+      })()}
+
+      ${(()=>{
+        /* ═══════════════════════════════════════════════════════
+           BLOCK 2 — Bảng P&L theo từng mức RR
+           Giả định: mỗi lệnh risk 1R. TP1=+1R, TP2=+2R... SL=-1R, BE=0
+           So sánh RR 1:1 đến 1:5
+        ═══════════════════════════════════════════════════════ */
+        const RR_LIST = [1,1.5,2,2.5,3,4,5];
+
+        function evalPnlAtRR(rr) {
+          let pnl=0, wins=0, losses=0, bes=0;
+          const steps_rr = Math.max(1, Math.floor(rr));
+          const beTrig_rr = beTrigger > 0 ? Math.min(beTrigger, steps_rr) : 0;
+          orderBoxes.forEach(ob=>{
+            const dist = ob.dir==='buy'?(ob.entry-ob.sl)+slPad2:(ob.sl-ob.entry)+slPad2;
+            if(dist<=0)return;
+            const startI=ob.barIdx+1;
+            const tpPrices_rr=[];
+            for(let s=1;s<=steps_rr;s++){
+              tpPrices_rr.push(ob.dir==='buy'?ob.entry+dist*s:ob.entry-dist*s);
+            }
+            const tpReached_rr=new Array(steps_rr).fill(false);
+            let hitSL_rr=false,beTrigReached_rr=false,hitBE_rr=false;
+            for(let k=startI;k<candles.length&&k<startI+200;k++){
+              const ck=candles[k];
+              if(ob.dir==='buy'){
+                if(beTrigReached_rr){if(ck.low<=ob.entry){hitBE_rr=true;break;}}
+                else{if(ck.low<=(ob.sl-slPad2)){hitSL_rr=true;break;}}
+                for(let s=0;s<steps_rr;s++){if(!tpReached_rr[s]&&ck.high>=tpPrices_rr[s]){tpReached_rr[s]=true;if(beTrig_rr>0&&(s+1)===beTrig_rr)beTrigReached_rr=true;}}
+              }else{
+                if(beTrigReached_rr){if(ck.high>=ob.entry){hitBE_rr=true;break;}}
+                else{if(ck.high>=(ob.sl+slPad2)){hitSL_rr=true;break;}}
+                for(let s=0;s<steps_rr;s++){if(!tpReached_rr[s]&&ck.low<=tpPrices_rr[s]){tpReached_rr[s]=true;if(beTrig_rr>0&&(s+1)===beTrig_rr)beTrigReached_rr=true;}}
+              }
+            }
+            if(hitSL_rr){pnl-=1;losses++;}
+            else if(hitBE_rr){bes++;}
+            else{
+              let earnedR=0;
+              tpReached_rr.forEach((hit,i)=>{if(hit)earnedR=i+1;});
+              pnl+=earnedR;
+              wins++;
+            }
+          });
+          return{pnl,wins,losses,bes,tot:orderBoxes.length};
+        }
+
+        const rrRows = RR_LIST.map(rr=>{
+          const {pnl,wins,losses,bes,tot}=evalPnlAtRR(rr);
+          const isCurrentRR = Math.abs(rr - rrVal) < 0.01;
+          const pnlColor = pnl>0?'#1a7a52':pnl<0?'#c0392b':'#b8860b';
+          const wr = tot?(wins/tot*100).toFixed(0):0;
+          return `<tr style="${isCurrentRR?'background:#f0f3f8;outline:1px solid #a8bad8;':''}">
+            <td style="padding:5px 8px;font-size:0.72rem;font-weight:700;color:${isCurrentRR?'var(--blue)':'var(--ink)'};">1:${rr}${isCurrentRR?' ◀':''}</td>
+            <td style="padding:5px 8px;text-align:right;font-size:0.78rem;font-weight:700;color:${pnlColor};">${pnl>0?'+':''}${pnl.toFixed(1)}R</td>
+            <td style="padding:5px 8px;text-align:right;font-size:0.68rem;color:#1a7a52;">${wins}</td>
+            <td style="padding:5px 8px;text-align:right;font-size:0.68rem;color:#b8860b;">${bes}</td>
+            <td style="padding:5px 8px;text-align:right;font-size:0.68rem;color:#c0392b;">${losses}</td>
+            <td style="padding:5px 8px;text-align:right;font-size:0.68rem;color:var(--muted);">${wr}%</td>
+          </tr>`;
+        }).join('');
+
+        return `<div style="border:1px solid var(--border);border-radius:5px;padding:8px 10px;margin-bottom:10px;">
+          <div style="font-size:0.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--faint);font-weight:600;margin-bottom:8px;">
+            💰 P&L theo mức RR <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted);">◀ = mức hiện tại · tính mỗi lệnh risk 1R</span>
+          </div>
+          <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;min-width:280px;">
+              <thead>
+                <tr style="border-bottom:1px solid var(--border);">
+                  <th style="padding:3px 8px;text-align:left;font-size:0.55rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--faint);font-weight:500;">RR</th>
+                  <th style="padding:3px 8px;text-align:right;font-size:0.55rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--faint);font-weight:500;">P&L</th>
+                  <th style="padding:3px 8px;text-align:right;font-size:0.55rem;letter-spacing:1.5px;text-transform:uppercase;color:#1a7a52;font-weight:600;">Win</th>
+                  <th style="padding:3px 8px;text-align:right;font-size:0.55rem;letter-spacing:1.5px;text-transform:uppercase;color:#b8860b;font-weight:600;">BE</th>
+                  <th style="padding:3px 8px;text-align:right;font-size:0.55rem;letter-spacing:1.5px;text-transform:uppercase;color:#c0392b;font-weight:600;">SL</th>
+                  <th style="padding:3px 8px;text-align:right;font-size:0.55rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--faint);font-weight:500;">WR%</th>
+                </tr>
+              </thead>
+              <tbody>${rrRows}</tbody>
+            </table>
+          </div>
+        </div>`;
+      })()}
+
+      ${(()=>{
+        /* ═══════════════════════════════════════════════════════
+           BLOCK 3 — Phân tích điều kiện BE (pullback sau TP1)
+           Mục tiêu: tìm xem loại lệnh nào, giờ nào hay bị BE
+        ═══════════════════════════════════════════════════════ */
+        if(beTrigger===0) return '';  // BE OFF → không hiện phân tích
+        const beObs = orderBoxes.filter(ob=>{
+          const dist=ob.dir==='buy'?(ob.entry-ob.sl)+slPad2:(ob.sl-ob.entry)+slPad2;
+          if(dist<=0)return false;
+          const startI=ob.barIdx+1;
+          const tpPrices_b=[];
+          for(let s=1;s<=steps2;s++) tpPrices_b.push(ob.dir==='buy'?ob.entry+dist*s:ob.entry-dist*s);
+          const tpReached_b=new Array(steps2).fill(false);
+          let beTrigReached_b=false,hitBE=false,hitSL=false;
+          for(let k=startI;k<candles.length&&k<startI+200;k++){
+            const ck=candles[k];
+            if(ob.dir==='buy'){
+              if(beTrigReached_b){if(ck.low<=ob.entry){hitBE=true;break;}}
+              else{if(ck.low<=(ob.sl-slPad2)){hitSL=true;break;}}
+              for(let s=0;s<steps2;s++){if(!tpReached_b[s]&&ck.high>=tpPrices_b[s]){tpReached_b[s]=true;if((s+1)===beTrigger)beTrigReached_b=true;}}
+            }else{
+              if(beTrigReached_b){if(ck.high>=ob.entry){hitBE=true;break;}}
+              else{if(ck.high>=(ob.sl+slPad2)){hitSL=true;break;}}
+              for(let s=0;s<steps2;s++){if(!tpReached_b[s]&&ck.low<=tpPrices_b[s]){tpReached_b[s]=true;if((s+1)===beTrigger)beTrigReached_b=true;}}
+            }
+          }
+          return hitBE;
+        });
+
+        if(!beObs.length)return '';
+
+        // BUY vs SELL
+        const beBuy  = beObs.filter(o=>o.dir==='buy').length;
+        const beSell = beObs.filter(o=>o.dir==='sell').length;
+        const totBuy2  = orderBoxes.filter(o=>o.dir==='buy').length;
+        const totSell2 = orderBoxes.filter(o=>o.dir==='sell').length;
+
+        // BOS vs CHOCH
+        const beBOS   = beObs.filter(o=>o.signalType==='BOS').length;
+        const beCHOCH = beObs.filter(o=>o.signalType==='CHOCH').length;
+
+        // Top 3 giờ BE nhiều nhất
+        const hourBE={};
+        beObs.forEach(ob=>{
+          const h=new Date(ob.time*1000).getUTCHours();
+          const slot=`${String(h).padStart(2,'0')}–${String(h+1).padStart(2,'0')}h`;
+          hourBE[slot]=(hourBE[slot]||0)+1;
+        });
+        const topHours=Object.entries(hourBE).sort((a,b)=>b[1]-a[1]).slice(0,4);
+
+        const pctOf=(n,t)=>t?Math.round(n/t*100)+'%':'—';
+
+        return `<div style="border:1px solid #e8d88a;border-radius:5px;padding:8px 10px;background:#fffbf0;">
+          <div style="font-size:0.58rem;letter-spacing:2px;text-transform:uppercase;color:#7a6a1a;font-weight:600;margin-bottom:8px;">
+            ⚠️ Phân tích BE — Pullback sau TP${beTrigger}
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+            <!-- BUY vs SELL -->
+            <div style="background:var(--surface);border-radius:4px;padding:7px 10px;border:1px solid var(--border);">
+              <div style="font-size:0.55rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--faint);font-weight:500;margin-bottom:6px;">BUY vs SELL</div>
+              <div style="display:flex;flex-direction:column;gap:4px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <span style="font-size:0.68rem;font-weight:700;color:var(--blue);">BUY</span>
+                  <span style="font-size:0.68rem;color:#b8860b;font-weight:700;">${beBuy} BE / ${totBuy2} tổng <span style="font-weight:400;color:var(--muted);">(${pctOf(beBuy,totBuy2)})</span></span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <span style="font-size:0.68rem;font-weight:700;color:var(--red);">SELL</span>
+                  <span style="font-size:0.68rem;color:#b8860b;font-weight:700;">${beSell} BE / ${totSell2} tổng <span style="font-weight:400;color:var(--muted);">(${pctOf(beSell,totSell2)})</span></span>
+                </div>
+              </div>
+            </div>
+            <!-- BOS vs CHOCH -->
+            <div style="background:var(--surface);border-radius:4px;padding:7px 10px;border:1px solid var(--border);">
+              <div style="font-size:0.55rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--faint);font-weight:500;margin-bottom:6px;">BOS vs CHOCH</div>
+              <div style="display:flex;flex-direction:column;gap:4px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <span style="font-size:0.68rem;font-weight:700;color:var(--ink);">BOS</span>
+                  <span style="font-size:0.68rem;color:#b8860b;font-weight:700;">${beBOS} BE / ${bosTotal} tổng <span style="font-weight:400;color:var(--muted);">(${pctOf(beBOS,bosTotal)})</span></span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <span style="font-size:0.68rem;font-weight:700;color:var(--blue);">CHOCH</span>
+                  <span style="font-size:0.68rem;color:#b8860b;font-weight:700;">${beCHOCH} BE / ${chochTotal} tổng <span style="font-weight:400;color:var(--muted);">(${pctOf(beCHOCH,chochTotal)})</span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- Top giờ BE -->
+          <div style="background:var(--surface);border-radius:4px;padding:7px 10px;border:1px solid var(--border);">
+            <div style="font-size:0.55rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--faint);font-weight:500;margin-bottom:6px;">Giờ hay bị BE nhất (UTC)</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;">
+              ${topHours.map(([h,n],idx)=>`
+                <div style="display:flex;align-items:center;gap:4px;padding:3px 8px;border-radius:4px;background:${idx===0?'#fff3cd':'#faf9f7'};border:1px solid ${idx===0?'#e8d88a':'var(--border)'};">
+                  <span style="font-size:0.68rem;font-weight:700;color:#7a6a1a;">${h}</span>
+                  <span style="font-size:0.65rem;color:#b8860b;font-weight:700;">${n}×</span>
+                </div>`).join('')}
+              ${beObs.length>0?`<span style="font-size:0.63rem;color:var(--muted);align-self:center;">→ Cân nhắc không vào lệnh ở các giờ này</span>`:''}
+            </div>
+          </div>
+        </div>`;
+      })()}
+
     </div>` : '';
 
   } // end if (_showOrderStat)
@@ -8290,6 +8582,7 @@ document.addEventListener('DOMContentLoaded', () => {
   ['ms55-show-buy','ms55-show-sell','ms55-show-bos','ms55-show-choch'].forEach(id => {
     document.getElementById(id)?.addEventListener('change', () => ms55Compute());
   });
+  document.getElementById('ms55-be-trigger')?.addEventListener('change', () => ms55Compute());
   // L/R pivot — rebuild boxes + thống kê
   ['ms55-left','ms55-right'].forEach(id => {
     const el = document.getElementById(id);
