@@ -784,7 +784,7 @@ tbody tr:hover td { background: #faf9f7; }
         <span style="font-size:0.6rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--faint);font-weight:600;">Left/Right:</span>
         <input id="ms55-left" type="number" min="1" max="50" value="5" style="width:40px;border:1px solid var(--border);border-radius:4px;padding:3px 5px;font-size:0.72rem;font-family:inherit;background:var(--surface);color:var(--ink);outline:none;">
         <input id="ms55-right" type="number" min="1" max="50" value="5" style="width:40px;border:1px solid var(--border);border-radius:4px;padding:3px 5px;font-size:0.72rem;font-family:inherit;background:var(--surface);color:var(--ink);outline:none;">
-        <button onclick="ms55Compute()" style="background:var(--ink);color:#fff;border:none;border-radius:4px;padding:4px 12px;font-size:0.7rem;font-weight:700;cursor:pointer;font-family:inherit;">↻ Tính lại</button>
+
         <label style="display:flex;align-items:center;gap:3px;font-size:0.68rem;color:var(--muted);cursor:pointer;">
           <input type="checkbox" id="ms55-show-bos" checked style="accent-color:var(--ink);"> BOS
         </label>
@@ -792,8 +792,9 @@ tbody tr:hover td { background: #faf9f7; }
           <input type="checkbox" id="ms55-show-choch" checked style="accent-color:var(--ink);"> CHOCH
         </label>
         <label style="display:flex;align-items:center;gap:3px;font-size:0.68rem;color:var(--muted);cursor:pointer;">
-          <input type="checkbox" id="ms55-show-order" checked style="accent-color:#1a7a52;"> Order Box
+          <input type="checkbox" id="ms55-show-order" style="accent-color:#1a7a52;"> Order Box
         </label>
+
         <span style="width:1px;height:16px;background:var(--border);flex-shrink:0;"></span>
         <!-- Order Setup inline -->
         <span id="ms55-order-controls" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
@@ -7244,6 +7245,8 @@ window.chtToggleChannel = () => {
     chtBuildChannel(chtAllCandles);
   }
   chtUpdateChannelBtn();
+  // EMA filter phụ thuộc channel — tính lại thống kê khi toggle
+  if (window.ms55Compute && ms55Active) window.ms55Compute();
 };
 
 function chtBuildChannel(candles) {
@@ -7513,7 +7516,7 @@ function ms55PivotLows(candles, L, R) {
 // - BUY  = close > pvtH và open <= pvtH  →  BOS nếu HH, CHOCH nếu LH
 // - SELL = close < pvtL và open >= pvtL  →  BOS nếu LL, CHOCH nếu HL
 // - Vẽ line từ barIndex của pivot → barIndex của nến break, tại mức pvtH/pvtL
-function ms55BuildBoxes(candles, L, R, limitBarsParam) {
+function ms55BuildBoxes(candles, L, R, limitBarsParam, emaHData, emaLData) {
   const _limitBars = limitBarsParam || window._ms55LimitBars || 5;
   const highs = ms55PivotHighs(candles, L, R);
   const lows  = ms55PivotLows (candles, L, R);
@@ -7521,12 +7524,26 @@ function ms55BuildBoxes(candles, L, R, limitBarsParam) {
   const phAt = {}; highs.forEach(p => phAt[p.idx] = p);
   const plAt = {}; lows .forEach(p => plAt[p.idx] = p);
 
+  // EMA channel lookup: time → value (dùng để filter nến break)
+  const emaHMap = {};
+  const emaLMap = {};
+  if (emaHData) emaHData.forEach(d => { emaHMap[d.time] = d.value; });
+  if (emaLData) emaLData.forEach(d => { emaLMap[d.time] = d.value; });
+  const hasEmaFilter = emaHData && emaHData.length > 0 && emaLData && emaLData.length > 0;
+
   let pvtH = null, prevPH = null;
   let pvtL = null, prevPL = null;
 
+  // Track xu hướng hiện tại để phân biệt BOS vs CHOCH
+  // BOS  = break theo chiều trend (up break pvtH khi trend đang up = Higher High)
+  // CHOCH = break ngược chiều trend (up break pvtH khi trend đang dn = Lower High bị phá)
+  let trendDir = null; // 'up' | 'dn' | null
+
   // SL tracking (Pine: slBuyLevel = low[rightLenH5] khi ph5 xảy ra, sau đó min với low)
   let slBuyLevel  = null;  // low tại pivot high bar
+  let slBuyTime   = null;  // time của nến có slBuyLevel
   let slSellLevel = null;  // high tại pivot low bar
+  let slSellTime  = null;  // time của nến có slSellLevel
 
   // Pending order (Pine: lưu khi buy5/sell5, check N nến sau)
   let pendingBuy  = null;  // { entry, sl, barIdx, time }
@@ -7538,40 +7555,66 @@ function ms55BuildBoxes(candles, L, R, limitBarsParam) {
     const c = candles[i];
 
     // ── SL tracking: cập nhật min/max low/high liên tục ──
-    if (slBuyLevel  !== null && !(pvtH && phAt[i])) slBuyLevel  = Math.min(slBuyLevel,  c.low);
-    if (slSellLevel !== null && !(pvtL && plAt[i])) slSellLevel = Math.max(slSellLevel, c.high);
+    if (slBuyLevel !== null && !(pvtH && phAt[i])) {
+      if (c.low < slBuyLevel) { slBuyLevel = c.low; slBuyTime = c.time; }
+    }
+    if (slSellLevel !== null && !(pvtL && plAt[i])) {
+      if (c.high > slSellLevel) { slSellLevel = c.high; slSellTime = c.time; }
+    }
 
     if (i > 0) {
-      // BUY break
+      // BUY break (close vượt pvtH)
       if (pvtH && c.close > pvtH.price && c.open <= pvtH.price) {
-        const isBOS = prevPH ? pvtH.price > prevPH.price : false;
+        // EMA channel filter: chỉ filter ORDER (pendingBuy), không filter signal box
+        const emaHvalBreak = hasEmaFilter ? emaHMap[c.time] : undefined;
+        // Lookup emaH tại nến có low thấp nhất (slBuyTime) — đúng thời điểm của SL
+        const emaHvalSL = (hasEmaFilter && slBuyTime) ? (emaHMap[slBuyTime] ?? emaHvalBreak) : emaHvalBreak;
+        // Điều kiện 1: close phải trên EMA50H tại nến break
+        // Điều kiện 2: slBuyLevel phải dưới EMA50H tại thời điểm của nến SL đó
+        const orderValid = !hasEmaFilter || emaHvalBreak === undefined ||
+          (c.close > emaHvalBreak && slBuyLevel !== null && emaHvalSL !== undefined && slBuyLevel < emaHvalSL);
+        // BOS = cùng chiều trend đang up (HH), CHOCH = đang dn mà bị phá lên (đổi chiều)
+        const isBOS = trendDir === 'up';
+        const sigType = isBOS ? 'BOS' : 'CHOCH';
+        trendDir = 'up'; // cập nhật trend dù có tạo signal hay không
+        // Signal box luôn vẽ đầy đủ
         boxes.push({
           timeL: pvtH.time, timeR: c.time,
           breakPrice: pvtH.price,
-          type: isBOS ? 'BOS' : 'CHOCH', dir: 'up',
+          type: sigType, dir: 'up',
         });
-        // Lưu pending BUY order
-        if (slBuyLevel !== null) {
-          pendingBuy = { entry: pvtH.price, sl: slBuyLevel, barIdx: i, time: c.time };
+        // Order chỉ tạo khi thỏa EMA filter
+        if (orderValid && slBuyLevel !== null) {
+          pendingBuy = { entry: pvtH.price, sl: slBuyLevel, barIdx: i, time: c.time, signalType: sigType };
         }
-        // Reset pivot sau break — tránh trigger lại cùng pivot
-        prevPH = pvtH; pvtH = null; slBuyLevel = null;
+        prevPH = pvtH; pvtH = null; slBuyLevel = null; slBuyTime = null;
       }
 
-      // SELL break
+      // SELL break (close xuyên pvtL)
       if (pvtL && c.close < pvtL.price && c.open >= pvtL.price) {
-        const isBOS = prevPL ? pvtL.price < prevPL.price : false;
+        // EMA channel filter: chỉ filter ORDER (pendingSell), không filter signal box
+        const emaLvalBreak = hasEmaFilter ? emaLMap[c.time] : undefined;
+        // Lookup emaL tại nến có high cao nhất (slSellTime) — đúng thời điểm của SL
+        const emaLvalSL = (hasEmaFilter && slSellTime) ? (emaLMap[slSellTime] ?? emaLvalBreak) : emaLvalBreak;
+        // Điều kiện 1: close phải dưới EMA50L tại nến break
+        // Điều kiện 2: slSellLevel phải trên EMA50L tại thời điểm của nến SL đó
+        const orderValid = !hasEmaFilter || emaLvalBreak === undefined ||
+          (c.close < emaLvalBreak && slSellLevel !== null && emaLvalSL !== undefined && slSellLevel > emaLvalSL);
+        // BOS = cùng chiều trend đang dn (LL), CHOCH = đang up mà bị phá xuống (đổi chiều)
+        const isBOS = trendDir === 'dn';
+        const sigType = isBOS ? 'BOS' : 'CHOCH';
+        trendDir = 'dn'; // cập nhật trend dù có tạo signal hay không
+        // Signal box luôn vẽ đầy đủ
         boxes.push({
           timeL: pvtL.time, timeR: c.time,
           breakPrice: pvtL.price,
-          type: isBOS ? 'BOS' : 'CHOCH', dir: 'dn',
+          type: sigType, dir: 'dn',
         });
-        // Lưu pending SELL order
-        if (slSellLevel !== null) {
-          pendingSell = { entry: pvtL.price, sl: slSellLevel, barIdx: i, time: c.time };
+        // Order chỉ tạo khi thỏa EMA filter
+        if (orderValid && slSellLevel !== null) {
+          pendingSell = { entry: pvtL.price, sl: slSellLevel, barIdx: i, time: c.time, signalType: sigType };
         }
-        // Reset pivot sau break
-        prevPL = pvtL; pvtL = null; slSellLevel = null;
+        prevPL = pvtL; pvtL = null; slSellLevel = null; slSellTime = null;
       }
 
       // ── Check BUY limit: giá chạm lại entry trong limitBars ──
@@ -7588,6 +7631,7 @@ function ms55BuildBoxes(candles, L, R, limitBarsParam) {
               barIdxEnd  : i,
               time       : c.time,
               triggerBarIdx: pendingBuy.barIdx,
+              signalType : pendingBuy.signalType || 'BOS',
             });
             pendingBuy = null;
           }
@@ -7610,6 +7654,7 @@ function ms55BuildBoxes(candles, L, R, limitBarsParam) {
               barIdxEnd  : i,
               time       : c.time,
               triggerBarIdx: pendingSell.barIdx,
+              signalType : pendingSell.signalType || 'BOS',
             });
             pendingSell = null;
           }
@@ -7669,8 +7714,16 @@ function ms55DrawBoxes() {
     const showBOS   = document.getElementById('ms55-show-bos')?.checked !== false;
     const showCHOCH = document.getElementById('ms55-show-choch')?.checked !== false;
 
-    // Vẽ tất cả box trong visible range (giới hạn 300 gần nhất)
-    const toShow = ms55Boxes.slice(-300);
+    // Tách riêng signal boxes và order boxes — không dùng chung giới hạn slice
+    const allSignalBoxes = ms55Boxes.filter(b => b.kind !== 'order');
+    const allOrderBoxes  = ms55Boxes.filter(b => b.kind === 'order');
+
+    // Signal boxes: chỉ vẽ những box nằm trong visible range
+    const toShow = allSignalBoxes.filter(b => {
+      if (!b.timeL || !b.timeR) return false;
+      return b.timeR >= vis.from - 86400 && b.timeL <= vis.to + 86400;
+    });
+
     toShow.forEach(box => {
       if (box.type === 'BOS'   && !showBOS)   return;
       if (box.type === 'CHOCH' && !showCHOCH) return;
@@ -7716,11 +7769,17 @@ function ms55DrawBoxes() {
       ctx.setLineDash([]);
       ctx.stroke();
 
-      // Label nhỏ tại điểm kết thúc
+      // Label ở giữa line
       if (Math.abs(w) > 20) {
-        ctx.font      = 'bold 9px sans-serif';
+        const xMid = (x1 + x2) / 2;
+        const label = box.type;
+        ctx.font = 'bold 9px sans-serif';
+        const tw = ctx.measureText(label).width;
+        // nền nhỏ để dễ đọc
+        ctx.fillStyle = 'rgba(247,245,242,0.82)';
+        ctx.fillRect(xMid - tw/2 - 2, yBreak - 9, tw + 4, 11);
         ctx.fillStyle = stroke;
-        ctx.fillText(box.type, x2 + 3, yBreak + 3);
+        ctx.fillText(label, xMid - tw/2, yBreak);
       }
     });
 
@@ -7731,8 +7790,10 @@ function ms55DrawBoxes() {
     const rrRatio    = parseFloat(document.getElementById('ms55-rr')?.value)    || 2;
     const extendBars = parseInt(document.getElementById('ms55-extend')?.value)  || 20;
     const slPadPts   = parseFloat(document.getElementById('ms55-sl-pad')?.value) || 0;
-    // 1 point = 0.00001 cho 5-digit pairs; tự detect pip size từ entry nếu có
-    const slPad = slPadPts * 0.00001;
+    // Auto-detect point size: JPY pairs (price > 20) dùng 0.001, còn lại 0.00001
+    const _refPrice  = chtAllCandles && chtAllCandles.length ? chtAllCandles[chtAllCandles.length-1].close : 1;
+    const _pointSize = _refPrice > 20 ? 0.001 : 0.00001;
+    const slPad = slPadPts * _pointSize;
 
     if (showOrder && chtAllCandles && chtAllCandles.length) {
       const allCandles = chtAllCandles;
@@ -7748,7 +7809,20 @@ function ms55DrawBoxes() {
         }
       } catch(e) {}
 
-      const orderBoxes = toShow.filter(b => b.kind === 'order');
+      // Lọc order boxes theo visible range để không bỏ sót
+      const visFrom = vis ? vis.from : 0;
+      const visTo   = vis ? vis.to   : Infinity;
+      const showBOSBox   = document.getElementById('ms55-show-bos')?.checked !== false;
+      const showCHOCHBox = document.getElementById('ms55-show-choch')?.checked !== false;
+      const orderBoxes = allOrderBoxes.filter(ob => {
+        const c = allCandles[ob.barIdx];
+        if (!c) return false;
+        if (ob.signalType === 'BOS'   && !showBOSBox)   return false;
+        if (ob.signalType === 'CHOCH' && !showCHOCHBox) return false;
+        const endIdx = Math.min(ob.barIdx + extendBars, allCandles.length - 1);
+        const cEnd   = allCandles[endIdx];
+        return cEnd.time >= visFrom - 86400 && c.time <= visTo + 86400;
+      });
       orderBoxes.forEach(ob => {
         if (ob.dir === 'buy'  && !showBuyBox)  return;
         if (ob.dir === 'sell' && !showSellBox) return;
@@ -7931,7 +8005,14 @@ window.ms55Compute = function() {
   const L = Math.max(1, parseInt(document.getElementById('ms55-left')?.value)||5);
   const R = Math.max(1, parseInt(document.getElementById('ms55-right')?.value)||5);
   window._ms55LimitBars = Math.max(1, parseInt(document.getElementById('ms55-limit-bars')?.value)||5);
-  ms55Boxes = ms55BuildBoxes(candles, L, R, window._ms55LimitBars);
+  // EMA filter: tự động bật khi Channel 50 đang active
+  const emaHData = (chtChannel && chtChannel.active) ? chtChannel.dataH : null;
+  const emaLData = (chtChannel && chtChannel.active) ? chtChannel.dataL : null;
+  const _slPadPts = parseFloat(document.getElementById('ms55-sl-pad')?.value) || 0;
+  const _refPrice2  = candles && candles.length ? candles[candles.length-1].close : 1;
+  const _pointSize2 = _refPrice2 > 20 ? 0.001 : 0.00001;
+  const _slPad    = _slPadPts * _pointSize2;
+  ms55Boxes = ms55BuildBoxes(candles, L, R, window._ms55LimitBars, emaHData, emaLData, _slPad);
 
   const signalBoxes = ms55Boxes.filter(b => b.kind !== 'order');
   const bosUp   = signalBoxes.filter(b=>b.type==='BOS'  &&b.dir==='up').length;
@@ -7947,7 +8028,11 @@ window.ms55Compute = function() {
 
 
 
-  // ── Order stats ──────────────────────────────────────────
+  // ── Order stats — chỉ chạy khi Order Box được tick ──────
+  const _showOrderStat = document.getElementById('ms55-show-order')?.checked;
+  if (!_showOrderStat) {
+    document.getElementById('ms55-order-stats').style.display = 'none';
+  } else {
   const sessionOn   = document.getElementById('ms55-session-on')?.checked;
   const sessionFrom = document.getElementById('ms55-session-from')?.value || '00:00';
   const sessionTo   = document.getElementById('ms55-session-to')?.value   || '24:00';
@@ -7959,10 +8044,15 @@ window.ms55Compute = function() {
   const showBuyStat  = document.getElementById('ms55-show-buy')?.checked !== false;
   const showSellStat = document.getElementById('ms55-show-sell')?.checked !== false;
 
+  const showBOSStat   = document.getElementById('ms55-show-bos')?.checked !== false;
+  const showCHOCHStat = document.getElementById('ms55-show-choch')?.checked !== false;
+
   const orderBoxes = ms55Boxes.filter(b => {
     if (b.kind !== 'order') return false;
     if (b.dir === 'buy'  && !showBuyStat)  return false;
     if (b.dir === 'sell' && !showSellStat) return false;
+    if (b.signalType === 'BOS'   && !showBOSStat)   return false;
+    if (b.signalType === 'CHOCH' && !showCHOCHStat) return false;
     if (!sessionOn) return true;
     const d   = new Date(b.time * 1000);
     const min = d.getUTCHours() * 60 + d.getUTCMinutes();
@@ -7970,20 +8060,28 @@ window.ms55Compute = function() {
   });
   const rrVal      = parseFloat(document.getElementById('ms55-rr')?.value) || 2;
   const slPadPts2  = parseFloat(document.getElementById('ms55-sl-pad')?.value) || 0;
-  const slPad2     = slPadPts2 * 0.00001;
+  const _refPrice3  = chtAllCandles && chtAllCandles.length ? chtAllCandles[chtAllCandles.length-1].close : 1;
+  const _pointSize3 = _refPrice3 > 20 ? 0.001 : 0.00001;
+  const slPad2     = slPadPts2 * _pointSize3;
 
   let buyTotal=0, sellTotal=0;
-  const tpHits   = {};   // tpHits[s] = count
+  let bosTotal=0, chochTotal=0;   // đếm theo signal type
+  // BOS stats
+  const bosTP={}, chochTP={};
   const steps2   = Math.max(1, Math.floor(rrVal));
-  for (let s=1;s<=steps2;s++) tpHits[s]=0;
+  const tpHits   = {};
+  for (let s=1;s<=steps2;s++) { tpHits[s]=0; bosTP[s]=0; chochTP[s]=0; }
   let slHitBuy=0, slHitSell=0;
   let beHitBuy=0, beHitSell=0;  // BE: đạt TP1 rồi quay về entry
+  let bosSL=0, chochSL=0, bosBE=0, chochBE=0;
 
   orderBoxes.forEach(ob => {
     const dist = ob.dir==='buy' ? (ob.entry - ob.sl)+slPad2 : (ob.sl - ob.entry)+slPad2;
     if (dist<=0) return;
     if (ob.dir==='buy')  buyTotal++;
     else                 sellTotal++;
+    const isBOSOrder = ob.signalType === 'BOS';
+    if (isBOSOrder) bosTotal++; else chochTotal++;
 
     // Check nến sau trigger đến hết candles
     const startI = ob.barIdx + 1;
@@ -8026,9 +8124,20 @@ window.ms55Compute = function() {
         }
       }
     }
-    if (hitSL) { if(ob.dir==='buy') slHitBuy++; else slHitSell++; }
-    if (hitBE) { if(ob.dir==='buy') beHitBuy++; else beHitSell++; }
-    tpReached.forEach((hit,i)=>{ if(hit) tpHits[i+1]++; });
+    if (hitSL) {
+      if(ob.dir==='buy') slHitBuy++; else slHitSell++;
+      if(isBOSOrder) bosSL++; else chochSL++;
+    }
+    if (hitBE) {
+      if(ob.dir==='buy') beHitBuy++; else beHitSell++;
+      if(isBOSOrder) bosBE++; else chochBE++;
+    }
+    tpReached.forEach((hit,i)=>{
+      if(hit) {
+        tpHits[i+1]++;
+        if(isBOSOrder) bosTP[i+1]++; else chochTP[i+1]++;
+      }
+    });
   });
 
   const totalOrders = buyTotal+sellTotal;
@@ -8047,10 +8156,30 @@ window.ms55Compute = function() {
   const slPct = totalOrders ? (totalSLHit/totalOrders*100).toFixed(0) : 0;
   const bePct = totalOrders ? (totalBEHit/totalOrders*100).toFixed(0) : 0;
 
+  // Helper: mini bar row
+  function statRow(label, color, bg, val, total) {
+    const pct = total ? (val/total*100).toFixed(0) : 0;
+    return `<div style="display:flex;align-items:center;gap:8px;">
+      <span style="font-size:0.65rem;color:${color};font-weight:600;min-width:36px;">${label}</span>
+      <div style="flex:1;background:var(--border);border-radius:3px;height:7px;overflow:hidden;">
+        <div style="width:${pct}%;background:${bg};height:100%;border-radius:3px;"></div></div>
+      <span style="font-size:0.65rem;font-weight:700;color:${color};min-width:70px;text-align:right">${val}/${total} (${pct}%)</span>
+    </div>`;
+  }
+  // BOS breakdown rows
+  const bosTProws = Array.from({length:steps2},(_,i)=>statRow('TP'+(i+1),'#1a7a52','#1a7a52',bosTP[i+1],bosTotal)).join('');
+  const chochTProws = Array.from({length:steps2},(_,i)=>statRow('TP'+(i+1),'#1a7a52','#1a7a52',chochTP[i+1],chochTotal)).join('');
+  const bosSLpct   = bosTotal   ? (bosSL/bosTotal*100).toFixed(0)     : 0;
+  const chochSLpct = chochTotal ? (chochSL/chochTotal*100).toFixed(0) : 0;
+  const bosBEpct   = bosTotal   ? (bosBE/bosTotal*100).toFixed(0)     : 0;
+  const chochBEpct = chochTotal ? (chochBE/chochTotal*100).toFixed(0) : 0;
+
   document.getElementById('ms55-order-stats').style.display = totalOrders ? '' : 'none';
   document.getElementById('ms55-order-stats').innerHTML = totalOrders ? `
     <div style="border:1px solid var(--border);border-radius:6px;padding:10px 14px;background:var(--surface);">
       <div style="font-size:0.6rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--faint);font-weight:600;margin-bottom:8px;">Thống kê lệnh Order Setup${sessionOn ? ` <span style="font-weight:400;letter-spacing:0;text-transform:none;color:var(--blue);">(Session ${sessionFrom}–${sessionTo} UTC)</span>` : ''}</div>
+
+      <!-- Tổng quan -->
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px;">
         <div style="text-align:center;padding:6px;background:var(--bg);border-radius:4px;">
           <div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Tổng lệnh</div>
@@ -8068,22 +8197,42 @@ window.ms55Compute = function() {
           <div style="font-size:0.58rem;color:#7a6a1a;">B${beHitBuy} · S${beHitSell}</div>
         </div>
       </div>
-      <div style="display:flex;flex-direction:column;gap:5px;">
+
+      <!-- Bars tổng -->
+      <div style="display:flex;flex-direction:column;gap:5px;margin-bottom:12px;">
         ${tpRows}
-        <div style="display:flex;align-items:center;gap:8px;margin-top:2px;">
-          <span style="font-size:0.65rem;color:#b8860b;font-weight:600;min-width:36px;">BE</span>
-          <div style="flex:1;background:var(--border);border-radius:3px;height:7px;overflow:hidden;">
-            <div style="width:${bePct}%;background:#b8860b;height:100%;border-radius:3px;"></div></div>
-          <span style="font-size:0.65rem;font-weight:700;color:#b8860b;min-width:70px;text-align:right">${totalBEHit}/${totalOrders} (${bePct}%)</span>
+        ${statRow('BE','#b8860b','#b8860b',totalBEHit,totalOrders)}
+        ${statRow('SL','#c0392b','#c0392b',totalSLHit,totalOrders)}
+      </div>
+
+      <!-- BOS vs CHOCH breakdown -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <!-- BOS -->
+        <div style="border:1px solid var(--border);border-radius:5px;padding:8px 10px;">
+          <div style="font-size:0.58rem;letter-spacing:2px;text-transform:uppercase;color:rgba(0,0,0,0.6);font-weight:700;margin-bottom:6px;">
+            BOS <span style="font-weight:400;letter-spacing:0;text-transform:none;color:var(--muted);">${bosTotal} lệnh</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            ${bosTProws}
+            ${statRow('BE','#b8860b','#b8860b',bosBE,bosTotal)}
+            ${statRow('SL','#c0392b','#c0392b',bosSL,bosTotal)}
+          </div>
         </div>
-        <div style="display:flex;align-items:center;gap:8px;margin-top:2px;">
-          <span style="font-size:0.65rem;color:var(--red);font-weight:600;min-width:36px;">SL</span>
-          <div style="flex:1;background:var(--border);border-radius:3px;height:7px;overflow:hidden;">
-            <div style="width:${slPct}%;background:#c0392b;height:100%;border-radius:3px;"></div></div>
-          <span style="font-size:0.65rem;font-weight:700;color:var(--red);min-width:70px;text-align:right">${totalSLHit}/${totalOrders} (${slPct}%)</span>
+        <!-- CHOCH -->
+        <div style="border:1px solid var(--border);border-radius:5px;padding:8px 10px;">
+          <div style="font-size:0.58rem;letter-spacing:2px;text-transform:uppercase;color:rgba(44,74,124,0.7);font-weight:700;margin-bottom:6px;">
+            CHOCH <span style="font-weight:400;letter-spacing:0;text-transform:none;color:var(--muted);">${chochTotal} lệnh</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            ${chochTProws}
+            ${statRow('BE','#b8860b','#b8860b',chochBE,chochTotal)}
+            ${statRow('SL','#c0392b','#c0392b',chochSL,chochTotal)}
+          </div>
         </div>
       </div>
     </div>` : '';
+
+  } // end if (_showOrderStat)
 
   // Vẽ lên chart
   if (!ms55Active) {
@@ -8102,9 +8251,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const orderChk = document.getElementById('ms55-show-order');
   const orderCtrl = document.getElementById('ms55-order-controls');
   if (orderChk && orderCtrl) {
+    // Init state: bỏ tick mặc định → ẩn controls
+    orderCtrl.style.opacity     = orderChk.checked ? '1' : '0.4';
+    orderCtrl.style.pointerEvents = orderChk.checked ? '' : 'none';
     orderChk.addEventListener('change', () => {
-      orderCtrl.style.opacity = orderChk.checked ? '1' : '0.4';
-      ms55DrawBoxes();
+      orderCtrl.style.opacity       = orderChk.checked ? '1' : '0.4';
+      orderCtrl.style.pointerEvents = orderChk.checked ? '' : 'none';
+      ms55Compute(); // rebuild stats + chart
     });
   }
   // Session filter — toggle time inputs enabled/disabled
@@ -8123,16 +8276,27 @@ document.addEventListener('DOMContentLoaded', () => {
   sessionFrEl?.addEventListener('change', () => ms55Compute());
   sessionToEl?.addEventListener('change', () => ms55Compute());
 
-  // RR và SL Pad ảnh hưởng thống kê → cần tính lại toàn bộ
-  ['ms55-rr','ms55-sl-pad'].forEach(id => {
+  // Tất cả input đều auto trigger ms55Compute() khi thay đổi
+  // — không cần bấm Tính lại nữa
+  ['ms55-rr','ms55-sl-pad','ms55-limit-bars','ms55-extend'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    // 'change' fires on blur/Enter; 'input' fires on every keystroke — dùng cả 2
+    // debounce để tránh tính liên tục khi đang gõ
+    let _t;
+    el.addEventListener('input',  () => { clearTimeout(_t); _t = setTimeout(() => ms55Compute(), 400); });
+    el.addEventListener('change', () => { clearTimeout(_t); ms55Compute(); });
+  });
+  ['ms55-show-buy','ms55-show-sell','ms55-show-bos','ms55-show-choch'].forEach(id => {
     document.getElementById(id)?.addEventListener('change', () => ms55Compute());
   });
-  // Các control còn lại chỉ cần vẽ lại chart
-  ['ms55-limit-bars','ms55-extend'].forEach(id => {
-    document.getElementById(id)?.addEventListener('change', () => ms55DrawBoxes());
-  });
-  ['ms55-show-buy','ms55-show-sell'].forEach(id => {
-    document.getElementById(id)?.addEventListener('change', () => ms55Compute());
+  // L/R pivot — rebuild boxes + thống kê
+  ['ms55-left','ms55-right'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    let _t;
+    el.addEventListener('input',  () => { clearTimeout(_t); _t = setTimeout(() => ms55Compute(), 400); });
+    el.addEventListener('change', () => { clearTimeout(_t); ms55Compute(); });
   });
 });
 
