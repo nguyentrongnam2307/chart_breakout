@@ -816,6 +816,13 @@ tbody tr:hover td { background: #faf9f7; }
           <label style="display:flex;align-items:center;gap:3px;font-size:0.68rem;color:var(--muted);cursor:pointer;">
             <input type="checkbox" id="ms55-show-sell" checked style="accent-color:var(--red);"> SELL
           </label>
+          <span style="width:1px;height:14px;background:var(--border);flex-shrink:0;"></span>
+          <label style="display:flex;align-items:center;gap:3px;font-size:0.68rem;color:var(--muted);cursor:pointer;">
+            <input type="checkbox" id="ms55-session-on" style="accent-color:var(--ink);"> Session
+          </label>
+          <input id="ms55-session-from" type="text" value="07:00" placeholder="07:00" maxlength="5" title="Giờ mở đầu UTC (HH:MM)" style="width:44px;border:1px solid var(--border);border-radius:4px;padding:2px 5px;font-size:0.68rem;font-family:inherit;background:var(--surface);color:var(--ink);outline:none;opacity:0.4;pointer-events:none;text-align:center;">
+          <span style="font-size:0.65rem;color:var(--muted);">–</span>
+          <input id="ms55-session-to" type="text" value="23:30" placeholder="23:30" maxlength="5" title="Giờ đóng UTC (HH:MM, dùng 24:00 cho nửa đêm)" style="width:44px;border:1px solid var(--border);border-radius:4px;padding:2px 5px;font-size:0.68rem;font-family:inherit;background:var(--surface);color:var(--ink);outline:none;opacity:0.4;pointer-events:none;text-align:center;">
         </span>
         <span id="ms55-status" style="font-size:0.6rem;color:var(--muted);margin-left:4px;"></span>
       </div>
@@ -7834,6 +7841,69 @@ function ms55DrawBoxes() {
         ctx.setLineDash([]);
       });
     }
+
+    // ── Vẽ vạch Session ──────────────────────────────────
+    const sessOn   = document.getElementById('ms55-session-on')?.checked;
+    if (sessOn && chtAllCandles && chtAllCandles.length) {
+      const sfVal = document.getElementById('ms55-session-from')?.value || '07:00';
+      const stVal = document.getElementById('ms55-session-to')?.value   || '23:30';
+      const [sfH2, sfM2] = sfVal.split(':').map(Number);
+      const [stH2, stM2] = stVal.split(':').map(Number);
+      const sfSec = (sfH2*60 + (sfM2||0)) * 60;
+      const stSec = (stH2*60 + (stM2||0)) * 60;
+
+      const visRange = tsScale.getVisibleRange();
+      if (visRange) {
+        const allC = chtAllCandles;
+        const seen = new Set();
+        allC.forEach(c => {
+          if (c.time < visRange.from - 86400 || c.time > visRange.to + 86400) return;
+          const d = new Date(c.time * 1000);
+          const dayKey = `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`;
+          if (seen.has(dayKey)) return;
+          seen.add(dayKey);
+
+          const midnight = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) / 1000;
+          const tFrom = midnight + sfSec;
+          const tTo   = stSec < 86400 ? midnight + stSec : midnight + 86400;
+
+          let xFrom, xTo;
+          try { xFrom = tsScale.timeToCoordinate(tFrom); } catch(e) { return; }
+          try { xTo   = tsScale.timeToCoordinate(tTo);   } catch(e) { return; }
+
+          // Clamp to canvas
+          const xF = Math.max(xFrom ?? -1, 0);
+          const xT = Math.min(xTo   ?? canvas.width + 1, canvas.width);
+
+          // ── Nền mờ trong session ──
+          if (xFrom != null && xTo != null && xTo > xFrom) {
+            ctx.fillStyle = 'rgba(220,53,69,0.05)';
+            ctx.fillRect(xF, 0, xT - xF, canvas.height);
+            // Viền trên
+            ctx.fillStyle = 'rgba(220,53,69,0.25)';
+            ctx.fillRect(xF, 0, xT - xF, 2);
+          }
+
+          // ── Vạch dọc từ + to ──
+          [[xFrom, tFrom, sfVal], [xTo, tTo, stSec >= 86400 ? '00:00' : stVal]].forEach(([x, , label]) => {
+            if (x == null || x < -2 || x > canvas.width + 2) return;
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, canvas.height);
+            ctx.strokeStyle = 'rgba(220,53,69,0.55)';
+            ctx.lineWidth   = 1.5;
+            ctx.setLineDash([6, 4]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.font      = 'bold 9px sans-serif';
+            ctx.fillStyle = 'rgba(220,53,69,0.8)';
+            ctx.fillText(label, x + 3, 20);
+            ctx.restore();
+          });
+        });
+      }
+    }
   });
 }
 
@@ -7877,7 +7947,26 @@ window.ms55Compute = function() {
 
 
   // ── Order stats ──────────────────────────────────────────
-  const orderBoxes = ms55Boxes.filter(b => b.kind === 'order');
+  const sessionOn   = document.getElementById('ms55-session-on')?.checked;
+  const sessionFrom = document.getElementById('ms55-session-from')?.value || '00:00';
+  const sessionTo   = document.getElementById('ms55-session-to')?.value   || '24:00';
+  const [sfH, sfM]  = sessionFrom.split(':').map(Number);
+  const [stH, stM]  = sessionTo.split(':').map(Number);
+  const sfMin = sfH * 60 + (sfM||0);
+  const stMin = stH * 60 + (stM||0);   // 24:00 → 1440
+
+  const showBuyStat  = document.getElementById('ms55-show-buy')?.checked !== false;
+  const showSellStat = document.getElementById('ms55-show-sell')?.checked !== false;
+
+  const orderBoxes = ms55Boxes.filter(b => {
+    if (b.kind !== 'order') return false;
+    if (b.dir === 'buy'  && !showBuyStat)  return false;
+    if (b.dir === 'sell' && !showSellStat) return false;
+    if (!sessionOn) return true;
+    const d   = new Date(b.time * 1000);
+    const min = d.getUTCHours() * 60 + d.getUTCMinutes();
+    return min >= sfMin && min < stMin;
+  });
   const rrVal      = parseFloat(document.getElementById('ms55-rr')?.value) || 2;
   const slPadPts2  = parseFloat(document.getElementById('ms55-sl-pad')?.value) || 0;
   const slPad2     = slPadPts2 * 0.00001;
@@ -7887,6 +7976,7 @@ window.ms55Compute = function() {
   const steps2   = Math.max(1, Math.floor(rrVal));
   for (let s=1;s<=steps2;s++) tpHits[s]=0;
   let slHitBuy=0, slHitSell=0;
+  let beHitBuy=0, beHitSell=0;  // BE: đạt TP1 rồi quay về entry
 
   orderBoxes.forEach(ob => {
     const dist = ob.dir==='buy' ? (ob.entry - ob.sl)+slPad2 : (ob.sl - ob.entry)+slPad2;
@@ -7903,26 +7993,46 @@ window.ms55Compute = function() {
       tpPrices.push(ob.dir==='buy' ? ob.entry+dist*s : ob.entry-dist*s);
     }
     const tpReached = new Array(steps2).fill(false);
+    let tp1Reached = false;  // đã đạt RR 1:1
+    let hitBE = false;       // sau TP1 quay về entry
+
     for (let k=startI; k<candles.length && k<startI+200; k++) {
       const ck = candles[k];
       if (ob.dir==='buy') {
-        if (ck.low <= slPrice) { hitSL=true; break; }
+        // Nếu đã đạt TP1 → SL được dời về entry (BE), check giá chạm entry
+        if (tp1Reached) {
+          if (ck.low <= ob.entry) { hitBE = true; break; }
+        } else {
+          if (ck.low <= slPrice) { hitSL=true; break; }
+        }
         for (let s=0;s<steps2;s++) {
-          if (!tpReached[s] && ck.high >= tpPrices[s]) tpReached[s]=true;
+          if (!tpReached[s] && ck.high >= tpPrices[s]) {
+            tpReached[s]=true;
+            if (s===0) tp1Reached = true;  // TP1 đã đạt
+          }
         }
       } else {
-        if (ck.high >= slPrice) { hitSL=true; break; }
+        if (tp1Reached) {
+          if (ck.high >= ob.entry) { hitBE = true; break; }
+        } else {
+          if (ck.high >= slPrice) { hitSL=true; break; }
+        }
         for (let s=0;s<steps2;s++) {
-          if (!tpReached[s] && ck.low <= tpPrices[s]) tpReached[s]=true;
+          if (!tpReached[s] && ck.low <= tpPrices[s]) {
+            tpReached[s]=true;
+            if (s===0) tp1Reached = true;
+          }
         }
       }
     }
     if (hitSL) { if(ob.dir==='buy') slHitBuy++; else slHitSell++; }
+    if (hitBE) { if(ob.dir==='buy') beHitBuy++; else beHitSell++; }
     tpReached.forEach((hit,i)=>{ if(hit) tpHits[i+1]++; });
   });
 
   const totalOrders = buyTotal+sellTotal;
   const totalSLHit  = slHitBuy+slHitSell;
+  const totalBEHit  = beHitBuy+beHitSell;
   const tpRows = Array.from({length:steps2},(_,i)=>{
     const s=i+1;
     const pct = totalOrders ? (tpHits[s]/totalOrders*100).toFixed(0) : 0;
@@ -7934,12 +8044,13 @@ window.ms55Compute = function() {
     </div>`;
   }).join('');
   const slPct = totalOrders ? (totalSLHit/totalOrders*100).toFixed(0) : 0;
+  const bePct = totalOrders ? (totalBEHit/totalOrders*100).toFixed(0) : 0;
 
   document.getElementById('ms55-order-stats').style.display = totalOrders ? '' : 'none';
   document.getElementById('ms55-order-stats').innerHTML = totalOrders ? `
     <div style="border:1px solid var(--border);border-radius:6px;padding:10px 14px;background:var(--surface);">
-      <div style="font-size:0.6rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--faint);font-weight:600;margin-bottom:8px;">Thống kê lệnh Order Setup</div>
-      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-bottom:10px;">
+      <div style="font-size:0.6rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--faint);font-weight:600;margin-bottom:8px;">Thống kê lệnh Order Setup${sessionOn ? ` <span style="font-weight:400;letter-spacing:0;text-transform:none;color:var(--blue);">(Session ${sessionFrom}–${sessionTo} UTC)</span>` : ''}</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px;">
         <div style="text-align:center;padding:6px;background:var(--bg);border-radius:4px;">
           <div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Tổng lệnh</div>
           <div style="font-size:1.1rem;font-weight:700;color:var(--ink);">${totalOrders}</div>
@@ -7950,9 +8061,20 @@ window.ms55Compute = function() {
           <div style="font-size:1.1rem;font-weight:700;color:var(--red);">${totalSLHit} <span style="font-size:0.7rem;font-weight:400;">(${slPct}%)</span></div>
           <div style="font-size:0.58rem;color:var(--muted);">B${slHitBuy} · S${slHitSell}</div>
         </div>
+        <div style="text-align:center;padding:6px;background:#fffbf0;border-radius:4px;border:1px solid #e8d88a;">
+          <div style="font-size:0.6rem;color:#7a6a1a;margin-bottom:2px;">BE (≥TP1→Entry)</div>
+          <div style="font-size:1.1rem;font-weight:700;color:#b8860b;">${totalBEHit} <span style="font-size:0.7rem;font-weight:400;">(${bePct}%)</span></div>
+          <div style="font-size:0.58rem;color:#7a6a1a;">B${beHitBuy} · S${beHitSell}</div>
+        </div>
       </div>
       <div style="display:flex;flex-direction:column;gap:5px;">
         ${tpRows}
+        <div style="display:flex;align-items:center;gap:8px;margin-top:2px;">
+          <span style="font-size:0.65rem;color:#b8860b;font-weight:600;min-width:36px;">BE</span>
+          <div style="flex:1;background:var(--border);border-radius:3px;height:7px;overflow:hidden;">
+            <div style="width:${bePct}%;background:#b8860b;height:100%;border-radius:3px;"></div></div>
+          <span style="font-size:0.65rem;font-weight:700;color:#b8860b;min-width:70px;text-align:right">${totalBEHit}/${totalOrders} (${bePct}%)</span>
+        </div>
         <div style="display:flex;align-items:center;gap:8px;margin-top:2px;">
           <span style="font-size:0.65rem;color:var(--red);font-weight:600;min-width:36px;">SL</span>
           <div style="flex:1;background:var(--border);border-radius:3px;height:7px;overflow:hidden;">
@@ -7984,14 +8106,32 @@ document.addEventListener('DOMContentLoaded', () => {
       ms55DrawBoxes();
     });
   }
-  // Re-draw on control change
+  // Session filter — toggle time inputs enabled/disabled
+  const sessionChk  = document.getElementById('ms55-session-on');
+  const sessionFrEl = document.getElementById('ms55-session-from');
+  const sessionToEl = document.getElementById('ms55-session-to');
+  function ms55UpdateSessionUI() {
+    const on = sessionChk?.checked;
+    [sessionFrEl, sessionToEl].forEach(el => {
+      if (!el) return;
+      el.style.opacity       = on ? '1' : '0.4';
+      el.style.pointerEvents = on ? '' : 'none';
+    });
+  }
+  sessionChk?.addEventListener('change', () => { ms55UpdateSessionUI(); ms55Compute(); });
+  sessionFrEl?.addEventListener('change', () => ms55Compute());
+  sessionToEl?.addEventListener('change', () => ms55Compute());
+
   // RR và SL Pad ảnh hưởng thống kê → cần tính lại toàn bộ
   ['ms55-rr','ms55-sl-pad'].forEach(id => {
     document.getElementById(id)?.addEventListener('change', () => ms55Compute());
   });
   // Các control còn lại chỉ cần vẽ lại chart
-  ['ms55-limit-bars','ms55-extend','ms55-show-buy','ms55-show-sell'].forEach(id => {
+  ['ms55-limit-bars','ms55-extend'].forEach(id => {
     document.getElementById(id)?.addEventListener('change', () => ms55DrawBoxes());
+  });
+  ['ms55-show-buy','ms55-show-sell'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', () => ms55Compute());
   });
 });
 
