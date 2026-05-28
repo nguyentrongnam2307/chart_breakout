@@ -7554,6 +7554,8 @@ function ms55BuildBoxes(candles, L, R, limitBarsParam) {
         if (slBuyLevel !== null) {
           pendingBuy = { entry: pvtH.price, sl: slBuyLevel, barIdx: i, time: c.time };
         }
+        // Reset pivot sau break — tránh trigger lại cùng pivot
+        prevPH = pvtH; pvtH = null; slBuyLevel = null;
       }
 
       // SELL break
@@ -7568,28 +7570,28 @@ function ms55BuildBoxes(candles, L, R, limitBarsParam) {
         if (slSellLevel !== null) {
           pendingSell = { entry: pvtL.price, sl: slSellLevel, barIdx: i, time: c.time };
         }
+        // Reset pivot sau break
+        prevPL = pvtL; pvtL = null; slSellLevel = null;
       }
 
       // ── Check BUY limit: giá chạm lại entry trong limitBars ──
       if (pendingBuy) {
         const elapsed = i - pendingBuy.barIdx;
-        const limitBars = 5; // default, sẽ đọc từ UI khi vẽ
-        if (elapsed > 0 && elapsed <= limitBars) {
+        if (elapsed > 0 && elapsed <= _limitBars) {
           if (c.low <= pendingBuy.entry) {
-            // Limit touched — ghi nhận order box (RR sẽ đọc khi vẽ)
             boxes.push({
               kind       : 'order',
               dir        : 'buy',
               entry      : pendingBuy.entry,
               sl         : pendingBuy.sl,
               barIdx     : i,
-              barIdxEnd  : i,   // sẽ extend khi vẽ
+              barIdxEnd  : i,
               time       : c.time,
               triggerBarIdx: pendingBuy.barIdx,
             });
             pendingBuy = null;
           }
-        } else if (elapsed > limitBars) {
+        } else if (elapsed > _limitBars) {
           pendingBuy = null;
         }
       }
@@ -7597,8 +7599,7 @@ function ms55BuildBoxes(candles, L, R, limitBarsParam) {
       // ── Check SELL limit ──
       if (pendingSell) {
         const elapsed = i - pendingSell.barIdx;
-        const limitBars = 5;
-        if (elapsed > 0 && elapsed <= limitBars) {
+        if (elapsed > 0 && elapsed <= _limitBars) {
           if (c.high >= pendingSell.entry) {
             boxes.push({
               kind       : 'order',
@@ -7612,7 +7613,7 @@ function ms55BuildBoxes(candles, L, R, limitBarsParam) {
             });
             pendingSell = null;
           }
-        } else if (elapsed > limitBars) {
+        } else if (elapsed > _limitBars) {
           pendingSell = null;
         }
       }
