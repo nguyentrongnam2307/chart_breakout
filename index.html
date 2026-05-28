@@ -799,6 +799,15 @@ tbody tr:hover td { background: #faf9f7; }
         <!-- Order Setup inline -->
         <span id="ms55-order-controls" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
           <span style="font-size:0.6rem;letter-spacing:1px;text-transform:uppercase;color:var(--faint);font-weight:600;">Order Setup</span>
+          <span style="width:1px;height:14px;background:var(--border);flex-shrink:0;"></span>
+          <span style="font-size:0.6rem;letter-spacing:1px;text-transform:uppercase;color:var(--faint);font-weight:600;">Entry:</span>
+          <label style="display:flex;align-items:center;gap:3px;font-size:0.68rem;color:var(--muted);cursor:pointer;" title="Vào lệnh khi giá chạm lại mức pivot (limit order)">
+            <input type="checkbox" id="ms55-entry-limit" checked style="accent-color:#2c4a7c;"> Limit
+          </label>
+          <label style="display:flex;align-items:center;gap:3px;font-size:0.68rem;color:var(--muted);cursor:pointer;" title="Vào lệnh ngay tại close của nến break (market order)">
+            <input type="checkbox" id="ms55-entry-market" style="accent-color:#e67e22;"> Market
+          </label>
+          <span style="width:1px;height:14px;background:var(--border);flex-shrink:0;"></span>
           <label style="display:flex;align-items:center;gap:3px;font-size:0.68rem;color:var(--muted);">RR
             <input id="ms55-rr" type="number" min="0.5" max="10" step="0.5" value="2" style="width:40px;border:1px solid var(--border);border-radius:4px;padding:3px 5px;font-size:0.72rem;font-family:inherit;background:var(--surface);color:var(--ink);outline:none;">
           </label>
@@ -7547,6 +7556,11 @@ function ms55BuildBoxes(candles, L, R, limitBarsParam, emaHData, emaLData) {
   // CHOCH = break ngược chiều trend (up break pvtH khi trend đang dn = Lower High bị phá)
   let trendDir = null; // 'up' | 'dn' | null
 
+  // Track số BOS liên tiếp cùng hướng
+  // Reset về 0 khi CHOCH xảy ra (đổi hướng)
+  let bosUpSeq = 0;  // BOS↑ liên tiếp
+  let bosDnSeq = 0;  // BOS↓ liên tiếp
+
   // SL tracking (Pine: slBuyLevel = low[rightLenH5] khi ph5 xảy ra, sau đó min với low)
   let slBuyLevel  = null;  // low tại pivot high bar
   let slBuyTime   = null;  // time của nến có slBuyLevel
@@ -7585,15 +7599,33 @@ function ms55BuildBoxes(candles, L, R, limitBarsParam, emaHData, emaLData) {
         const isBOS = trendDir === 'up';
         const sigType = isBOS ? 'BOS' : 'CHOCH';
         trendDir = 'up'; // cập nhật trend dù có tạo signal hay không
+        // Cập nhật chuỗi BOS
+        if (isBOS) { bosUpSeq++; } else { bosUpSeq = 1; bosDnSeq = 0; } // CHOCH↑ reset dn, bắt đầu up seq=1
+        const curBosSeq = bosUpSeq; // lần BOS↑ thứ N liên tiếp (CHOCH=1, BOS2,3...)
         // Signal box luôn vẽ đầy đủ
         boxes.push({
           timeL: pvtH.time, timeR: c.time,
           breakPrice: pvtH.price,
           type: sigType, dir: 'up',
+          bosSeq: curBosSeq,
         });
         // Order chỉ tạo khi thỏa EMA filter
         if (orderValid && slBuyLevel !== null) {
-          pendingBuy = { entry: pvtH.price, sl: slBuyLevel, barIdx: i, time: c.time, signalType: sigType };
+          pendingBuy = { entry: pvtH.price, sl: slBuyLevel, barIdx: i, time: c.time, signalType: sigType, bosSeq: curBosSeq };
+          // Market order: vào ngay tại close của nến break
+          boxes.push({
+            kind       : 'order',
+            entryType  : 'market',
+            dir        : 'buy',
+            entry      : c.close,
+            sl         : slBuyLevel,
+            barIdx     : i,
+            barIdxEnd  : i,
+            time       : c.time,
+            triggerBarIdx: i,
+            signalType : sigType,
+            bosSeq     : curBosSeq,
+          });
         }
         prevPH = pvtH; pvtH = null; slBuyLevel = null; slBuyTime = null;
       }
@@ -7612,15 +7644,33 @@ function ms55BuildBoxes(candles, L, R, limitBarsParam, emaHData, emaLData) {
         const isBOS = trendDir === 'dn';
         const sigType = isBOS ? 'BOS' : 'CHOCH';
         trendDir = 'dn'; // cập nhật trend dù có tạo signal hay không
+        // Cập nhật chuỗi BOS
+        if (isBOS) { bosDnSeq++; } else { bosDnSeq = 1; bosUpSeq = 0; } // CHOCH↓ reset up, bắt đầu dn seq=1
+        const curBosSeqDn = bosDnSeq;
         // Signal box luôn vẽ đầy đủ
         boxes.push({
           timeL: pvtL.time, timeR: c.time,
           breakPrice: pvtL.price,
           type: sigType, dir: 'dn',
+          bosSeq: curBosSeqDn,
         });
         // Order chỉ tạo khi thỏa EMA filter
         if (orderValid && slSellLevel !== null) {
-          pendingSell = { entry: pvtL.price, sl: slSellLevel, barIdx: i, time: c.time, signalType: sigType };
+          pendingSell = { entry: pvtL.price, sl: slSellLevel, barIdx: i, time: c.time, signalType: sigType, bosSeq: curBosSeqDn };
+          // Market order: vào ngay tại close của nến break
+          boxes.push({
+            kind       : 'order',
+            entryType  : 'market',
+            dir        : 'sell',
+            entry      : c.close,
+            sl         : slSellLevel,
+            barIdx     : i,
+            barIdxEnd  : i,
+            time       : c.time,
+            triggerBarIdx: i,
+            signalType : sigType,
+            bosSeq     : curBosSeqDn,
+          });
         }
         prevPL = pvtL; pvtL = null; slSellLevel = null; slSellTime = null;
       }
@@ -7632,6 +7682,7 @@ function ms55BuildBoxes(candles, L, R, limitBarsParam, emaHData, emaLData) {
           if (c.low <= pendingBuy.entry) {
             boxes.push({
               kind       : 'order',
+              entryType  : 'limit',
               dir        : 'buy',
               entry      : pendingBuy.entry,
               sl         : pendingBuy.sl,
@@ -7640,6 +7691,7 @@ function ms55BuildBoxes(candles, L, R, limitBarsParam, emaHData, emaLData) {
               time       : c.time,
               triggerBarIdx: pendingBuy.barIdx,
               signalType : pendingBuy.signalType || 'BOS',
+              bosSeq     : pendingBuy.bosSeq || 1,
             });
             pendingBuy = null;
           }
@@ -7655,6 +7707,7 @@ function ms55BuildBoxes(candles, L, R, limitBarsParam, emaHData, emaLData) {
           if (c.high >= pendingSell.entry) {
             boxes.push({
               kind       : 'order',
+              entryType  : 'limit',
               dir        : 'sell',
               entry      : pendingSell.entry,
               sl         : pendingSell.sl,
@@ -7663,6 +7716,7 @@ function ms55BuildBoxes(candles, L, R, limitBarsParam, emaHData, emaLData) {
               time       : c.time,
               triggerBarIdx: pendingSell.barIdx,
               signalType : pendingSell.signalType || 'BOS',
+              bosSeq     : pendingSell.bosSeq || 1,
             });
             pendingSell = null;
           }
@@ -7827,6 +7881,11 @@ function ms55DrawBoxes() {
         if (!c) return false;
         if (ob.signalType === 'BOS'   && !showBOSBox)   return false;
         if (ob.signalType === 'CHOCH' && !showCHOCHBox) return false;
+        // Filter by entry type
+        const showLimit  = document.getElementById('ms55-entry-limit')?.checked !== false;
+        const showMarket = document.getElementById('ms55-entry-market')?.checked;
+        if (ob.entryType === 'limit'  && !showLimit)  return false;
+        if (ob.entryType === 'market' && !showMarket) return false;
         const endIdx = Math.min(ob.barIdx + extendBars, allCandles.length - 1);
         const cEnd   = allCandles[endIdx];
         return cEnd.time >= visFrom - 86400 && c.time <= visTo + 86400;
@@ -7917,9 +7976,16 @@ function ms55DrawBoxes() {
         ctx.beginPath();
         ctx.moveTo(xStart, yEntry);
         ctx.lineTo(xEnd,   yEntry);
-        ctx.strokeStyle = ob.dir === 'buy' ? 'rgba(44,74,124,0.8)' : 'rgba(192,57,43,0.8)';
-        ctx.lineWidth   = 1.5;
-        ctx.setLineDash([4,3]);
+        // Market entry = đường cam cam, Limit = màu thường
+        if (ob.entryType === 'market') {
+          ctx.strokeStyle = ob.dir === 'buy' ? 'rgba(230,126,34,0.9)' : 'rgba(230,126,34,0.9)';
+          ctx.lineWidth   = 1.5;
+          ctx.setLineDash([2,2]);
+        } else {
+          ctx.strokeStyle = ob.dir === 'buy' ? 'rgba(44,74,124,0.8)' : 'rgba(192,57,43,0.8)';
+          ctx.lineWidth   = 1.5;
+          ctx.setLineDash([4,3]);
+        }
         ctx.stroke();
         ctx.setLineDash([]);
       });
@@ -8055,12 +8121,17 @@ window.ms55Compute = function() {
   const showBOSStat   = document.getElementById('ms55-show-bos')?.checked !== false;
   const showCHOCHStat = document.getElementById('ms55-show-choch')?.checked !== false;
 
+  const showLimitStat  = document.getElementById('ms55-entry-limit')?.checked !== false;
+  const showMarketStat = document.getElementById('ms55-entry-market')?.checked;
+
   const orderBoxes = ms55Boxes.filter(b => {
     if (b.kind !== 'order') return false;
     if (b.dir === 'buy'  && !showBuyStat)  return false;
     if (b.dir === 'sell' && !showSellStat) return false;
     if (b.signalType === 'BOS'   && !showBOSStat)   return false;
     if (b.signalType === 'CHOCH' && !showCHOCHStat) return false;
+    if (b.entryType === 'limit'  && !showLimitStat)  return false;
+    if (b.entryType === 'market' && !showMarketStat) return false;
     if (!sessionOn) return true;
     const d   = new Date(b.time * 1000);
     const min = d.getUTCHours() * 60 + d.getUTCMinutes();
@@ -8085,6 +8156,20 @@ window.ms55Compute = function() {
   let beHitBuy=0, beHitSell=0;  // BE: đạt TPn rồi quay về entry
   let bosSL=0, chochSL=0, bosBE=0, chochBE=0;
 
+  // Per-entryType stats (limit / market)
+  const limitStats  = { total:0, tpHits:{}, slHit:0, beHit:0, buyTotal:0, sellTotal:0 };
+  const marketStats = { total:0, tpHits:{}, slHit:0, beHit:0, buyTotal:0, sellTotal:0 };
+  for(let s=1;s<=steps2;s++){ limitStats.tpHits[s]=0; marketStats.tpHits[s]=0; }
+
+  // Per-BOS-sequence stats: seq1 (CHOCH hoặc BOS đầu), seq2, seq3+ (BOS lần 3 trở đi)
+  // Chỉ áp dụng cho TẤT CẢ lệnh (không phân biệt entry type)
+  // seqStats[1] = CHOCH / BOS đầu tiên sau đổi hướng
+  // seqStats[2] = BOS thứ 2 liên tiếp
+  // seqStats[3] = BOS thứ 3+ gộp lại
+  function makeSeqStat(){ return { total:0, tpHits:{}, slHit:0, beHit:0, buyTotal:0, sellTotal:0 }; }
+  const seqStats = { 1: makeSeqStat(), 2: makeSeqStat(), 3: makeSeqStat() };
+  for(let s=1;s<=steps2;s++){ seqStats[1].tpHits[s]=0; seqStats[2].tpHits[s]=0; seqStats[3].tpHits[s]=0; }
+
   orderBoxes.forEach(ob => {
     const dist = ob.dir==='buy' ? (ob.entry - ob.sl)+slPad2 : (ob.sl - ob.entry)+slPad2;
     if (dist<=0) return;
@@ -8092,6 +8177,14 @@ window.ms55Compute = function() {
     else                 sellTotal++;
     const isBOSOrder = ob.signalType === 'BOS';
     if (isBOSOrder) bosTotal++; else chochTotal++;
+    const etStats = ob.entryType === 'market' ? marketStats : limitStats;
+    etStats.total++;
+    if(ob.dir==='buy') etStats.buyTotal++; else etStats.sellTotal++;
+    // BOS sequence bucket: 1, 2, 3+
+    const seqKey = !ob.bosSeq || ob.bosSeq <= 1 ? 1 : ob.bosSeq === 2 ? 2 : 3;
+    const sqSt = seqStats[seqKey];
+    sqSt.total++;
+    if(ob.dir==='buy') sqSt.buyTotal++; else sqSt.sellTotal++;
 
     // Check nến sau trigger đến hết candles
     const startI = ob.barIdx + 1;
@@ -8139,15 +8232,21 @@ window.ms55Compute = function() {
     if (hitSL) {
       if(ob.dir==='buy') slHitBuy++; else slHitSell++;
       if(isBOSOrder) bosSL++; else chochSL++;
+      etStats.slHit++;
+      sqSt.slHit++;
     }
     if (hitBE) {
       if(ob.dir==='buy') beHitBuy++; else beHitSell++;
       if(isBOSOrder) bosBE++; else chochBE++;
+      etStats.beHit++;
+      sqSt.beHit++;
     }
     tpReached.forEach((hit,i)=>{
       if(hit) {
         tpHits[i+1]++;
         if(isBOSOrder) bosTP[i+1]++; else chochTP[i+1]++;
+        etStats.tpHits[i+1]++;
+        sqSt.tpHits[i+1]++;
       }
     });
   });
@@ -8155,6 +8254,59 @@ window.ms55Compute = function() {
   const totalOrders = buyTotal+sellTotal;
   const totalSLHit  = slHitBuy+slHitSell;
   const totalBEHit  = beHitBuy+beHitSell;
+
+  // ── Expectancy (kỳ vọng R/lệnh) ──────────────────────────
+  // Công thức: E = Σ[TPn_hit/total × n×R] + BE_hit/total × 0 − SL_hit/total × 1R
+  // BE = 0R (hòa vốn), SL = -1R, TPn = +n×R (tính theo RR setting)
+  // Lệnh "còn mở" (không hit gì) = bỏ qua
+  function calcExpectancy(st, steps, rrV) {
+    if (!st.total) return null;
+    let gain = 0;
+    for (let s = 1; s <= steps; s++) {
+      // TPn đạt = lãi s×R (mỗi bước = 1R)
+      // Chỉ tính phần incremental: TPn hit nhưng TP(n+1) không hit
+      const hitThis = st.tpHits[s] || 0;
+      const hitNext = st.tpHits[s+1] || 0;
+      // Số lệnh dừng tại TPn (không chạy tiếp) = hitThis - hitNext - beHit (nếu BE sau TPn)
+      // Đơn giản hóa: mỗi TP hit thêm 1R incremental
+      gain += (hitThis / st.total) * 1;
+    }
+    const loss = (st.slHit / st.total) * 1;
+    // BE = 0R, không cộng không trừ
+    return gain - loss;
+  }
+
+  const expTotal   = calcExpectancy({total:totalOrders, tpHits, slHit:totalSLHit, beHit:totalBEHit}, steps2, rrVal);
+  const expBOS     = calcExpectancy({total:bosTotal,    tpHits:bosTP,   slHit:bosSL,   beHit:bosBE},   steps2, rrVal);
+  const expCHOCH   = calcExpectancy({total:chochTotal,  tpHits:chochTP, slHit:chochSL, beHit:chochBE}, steps2, rrVal);
+  const expLimit   = calcExpectancy(limitStats,  steps2, rrVal);
+  const expMarket  = calcExpectancy(marketStats, steps2, rrVal);
+  const expSeq1    = calcExpectancy(seqStats[1], steps2, rrVal);
+  const expSeq2    = calcExpectancy(seqStats[2], steps2, rrVal);
+  const expSeq3    = calcExpectancy(seqStats[3], steps2, rrVal);
+
+  function fmtExp(e) {
+    if (e === null) return '—';
+    const sign = e >= 0 ? '+' : '';
+    return `${sign}${e.toFixed(2)}R`;
+  }
+  function expColor(e) {
+    if (e === null) return 'var(--muted)';
+    if (e > 0.15)  return '#1a7a52';
+    if (e > 0)     return '#5a9a72';
+    if (e > -0.1)  return '#b8860b';
+    return '#c0392b';
+  }
+  function expBadge(e, label='') {
+    if (e === null) return '';
+    const color = expColor(e);
+    const sign  = e >= 0 ? '+' : '';
+    const emoji = e > 0.1 ? '▲' : e > 0 ? '△' : e > -0.1 ? '◇' : '▼';
+    return `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:3px;font-size:0.65rem;font-weight:700;background:${color}18;border:1px solid ${color}44;color:${color};">
+      ${emoji} ${sign}${e.toFixed(2)}R${label?' · '+label:''}
+    </span>`;
+  }
+
   const tpRows = Array.from({length:steps2},(_,i)=>{
     const s=i+1;
     const pct = totalOrders ? (tpHits[s]/totalOrders*100).toFixed(0) : 0;
@@ -8192,7 +8344,7 @@ window.ms55Compute = function() {
       <div style="font-size:0.6rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--faint);font-weight:600;margin-bottom:8px;">Thống kê lệnh Order Setup${sessionOn ? ` <span style="font-weight:400;letter-spacing:0;text-transform:none;color:var(--blue);">(Session ${sessionFrom}–${sessionTo} UTC)</span>` : ''}</div>
 
       <!-- Tổng quan -->
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px;">
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px;">
         <div style="text-align:center;padding:6px;background:var(--bg);border-radius:4px;">
           <div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Tổng lệnh</div>
           <div style="font-size:1.1rem;font-weight:700;color:var(--ink);">${totalOrders}</div>
@@ -8207,6 +8359,11 @@ window.ms55Compute = function() {
           <div style="font-size:0.6rem;color:#7a6a1a;margin-bottom:2px;">${beTrigger>0?`BE (≥TP${beTrigger}→Entry)`:'BE (OFF)'}</div>
           <div style="font-size:1.1rem;font-weight:700;color:#b8860b;">${beTrigger>0?totalBEHit:'—'} <span style="font-size:0.7rem;font-weight:400;">${beTrigger>0?`(${bePct}%)`:''}</span></div>
           <div style="font-size:0.58rem;color:#7a6a1a;">${beTrigger>0?`B${beHitBuy} · S${beHitSell}`:'Dời SL tắt'}</div>
+        </div>
+        <div style="text-align:center;padding:6px;border-radius:4px;border:1px solid ${expColor(expTotal)}44;background:${expColor(expTotal)}0d;">
+          <div style="font-size:0.6rem;color:var(--muted);margin-bottom:2px;">Kỳ vọng</div>
+          <div style="font-size:1.1rem;font-weight:700;color:${expColor(expTotal)};">${fmtExp(expTotal)}</div>
+          <div style="font-size:0.58rem;color:var(--muted);" title="R trung bình mỗi lệnh. >0 = có lãi kỳ vọng dương">R / lệnh</div>
         </div>
       </div>
 
@@ -8223,6 +8380,7 @@ window.ms55Compute = function() {
         <div style="border:1px solid var(--border);border-radius:5px;padding:8px 10px;">
           <div style="font-size:0.58rem;letter-spacing:2px;text-transform:uppercase;color:rgba(0,0,0,0.6);font-weight:700;margin-bottom:6px;">
             BOS <span style="font-weight:400;letter-spacing:0;text-transform:none;color:var(--muted);">${bosTotal} lệnh</span>
+            <span style="float:right;margin-top:-1px;">${expBadge(expBOS)}</span>
           </div>
           <div style="display:flex;flex-direction:column;gap:4px;">
             ${bosTProws}
@@ -8234,6 +8392,7 @@ window.ms55Compute = function() {
         <div style="border:1px solid var(--border);border-radius:5px;padding:8px 10px;">
           <div style="font-size:0.58rem;letter-spacing:2px;text-transform:uppercase;color:rgba(44,74,124,0.7);font-weight:700;margin-bottom:6px;">
             CHOCH <span style="font-weight:400;letter-spacing:0;text-transform:none;color:var(--muted);">${chochTotal} lệnh</span>
+            <span style="float:right;margin-top:-1px;">${expBadge(expCHOCH)}</span>
           </div>
           <div style="display:flex;flex-direction:column;gap:4px;">
             ${chochTProws}
@@ -8242,6 +8401,121 @@ window.ms55Compute = function() {
           </div>
         </div>
       </div>
+
+      ${(()=>{
+        // ── BOS Sequence breakdown ──────────────────────────────
+        // seq1 = CHOCH hoặc BOS đầu tiên sau đổi hướng
+        // seq2 = BOS thứ 2 liên tiếp cùng chiều
+        // seq3 = BOS thứ 3+ gộp lại
+        const seqLabels = { 1: 'BOS / CHOCH 1', 2: 'BOS 2', 3: 'BOS 3+' };
+        const seqColors = { 1: '#6b5ba0', 2: '#2c7a6c', 3: '#a05b20' };
+        const seqExps   = { 1: expSeq1, 2: expSeq2, 3: expSeq3 };
+        const seqDescs  = {
+          1: 'Lần đầu theo hướng (CHOCH hoặc BOS 1)',
+          2: 'BOS thứ 2 liên tiếp cùng hướng',
+          3: 'BOS thứ 3 trở đi liên tiếp cùng hướng',
+        };
+        const hasAny = seqStats[1].total || seqStats[2].total || seqStats[3].total;
+        if (!hasAny) return '';
+
+        // Tìm seq có kỳ vọng cao nhất
+        const bestSeq = [1,2,3].reduce((best,s) => {
+          const e = seqExps[s]; if(e===null) return best;
+          return (best===null || e > seqExps[best]) ? s : best;
+        }, null);
+
+        function seqBlock(key) {
+          const st = seqStats[key];
+          const label = seqLabels[key];
+          const color = seqColors[key];
+          const exp   = seqExps[key];
+          const isBest = key === bestSeq && exp !== null && exp > 0;
+          if (!st.total) return `<div style="border:1px solid var(--border);border-radius:5px;padding:8px 10px;opacity:0.4;">
+            <div style="font-size:0.58rem;letter-spacing:1.5px;text-transform:uppercase;color:${color};font-weight:700;margin-bottom:3px;">${label}</div>
+            <div style="font-size:0.62rem;color:var(--muted);">Không có lệnh</div></div>`;
+          const tpR = Array.from({length:steps2},(_,i)=>statRow('TP'+(i+1),'#1a7a52','#1a7a52',st.tpHits[i+1],st.total)).join('');
+          return `<div style="border:1px solid ${isBest?color+'66':'var(--border)'};border-radius:5px;padding:8px 10px;${isBest?`background:${color}08;`:''} position:relative;">
+            ${isBest?`<span style="position:absolute;top:6px;right:8px;font-size:0.55rem;font-weight:700;color:${color};letter-spacing:1px;text-transform:uppercase;opacity:0.8;">★ TỐT NHẤT</span>`:''}
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+              <div>
+                <div style="font-size:0.58rem;letter-spacing:1.5px;text-transform:uppercase;color:${color};font-weight:700;">${label}</div>
+                <div style="font-size:0.58rem;color:var(--muted);margin-top:1px;">${seqDescs[key]} · ${st.total} lệnh · B${st.buyTotal} S${st.sellTotal}</div>
+              </div>
+              ${expBadge(exp)}
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px;margin-top:6px;">
+              ${tpR}
+              ${statRow('BE','#b8860b','#b8860b',st.beHit,st.total)}
+              ${statRow('SL','#c0392b','#c0392b',st.slHit,st.total)}
+            </div>
+          </div>`;
+        }
+
+        return `
+        <!-- BOS Sequence breakdown -->
+        <div style="margin-bottom:12px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid var(--border);">
+            <div style="font-size:0.55rem;letter-spacing:2px;text-transform:uppercase;color:var(--faint);font-weight:600;">
+              Chuỗi BOS liên tiếp cùng hướng
+            </div>
+            ${bestSeq && seqExps[bestSeq]!==null && seqExps[bestSeq]>0
+              ? `<span style="font-size:0.62rem;font-weight:700;color:${seqColors[bestSeq]};">★ ${seqLabels[bestSeq]} kỳ vọng cao nhất</span>`
+              : `<span style="font-size:0.62rem;color:var(--muted);">Không có kỳ vọng dương</span>`}
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
+            ${seqBlock(1)}
+            ${seqBlock(2)}
+            ${seqBlock(3)}
+          </div>
+        </div>`;
+      })()}
+
+      ${(()=>{
+        // ── Limit vs Market breakdown (chỉ show khi tích cả 2) ──
+        if(!showLimitStat || !showMarketStat) return '';
+        function etBlock(label, color, st, steps){
+          if(!st.total) return `<div style="border:1px solid var(--border);border-radius:5px;padding:8px 10px;opacity:0.5;">
+            <div style="font-size:0.58rem;letter-spacing:2px;text-transform:uppercase;color:${color};font-weight:700;margin-bottom:4px;">${label} <span style="font-weight:400;color:var(--muted);">0 lệnh</span></div>
+            <div style="font-size:0.65rem;color:var(--muted);">Không có lệnh</div></div>`;
+          const tpR = Array.from({length:steps},(_,i)=>statRow('TP'+(i+1),'#1a7a52','#1a7a52',st.tpHits[i+1],st.total)).join('');
+          const exp = calcExpectancy(st, steps, rrVal);
+          return `<div style="border:1px solid var(--border);border-radius:5px;padding:8px 10px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+              <div style="font-size:0.58rem;letter-spacing:2px;text-transform:uppercase;color:${color};font-weight:700;">
+                ${label} <span style="font-weight:400;letter-spacing:0;text-transform:none;color:var(--muted);">${st.total} lệnh · B${st.buyTotal} S${st.sellTotal}</span>
+              </div>
+              ${expBadge(exp)}
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              ${tpR}
+              ${statRow('BE','#b8860b','#b8860b',st.beHit,st.total)}
+              ${statRow('SL','#c0392b','#c0392b',st.slHit,st.total)}
+            </div>
+          </div>`;
+        }
+        return `
+        <!-- Limit vs Market breakdown -->
+        <div style="margin-bottom:12px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid var(--border);">
+            <div style="font-size:0.55rem;letter-spacing:2px;text-transform:uppercase;color:var(--faint);font-weight:600;">
+              So sánh Limit vs Market
+            </div>
+            ${(()=>{
+              if(expLimit===null && expMarket===null) return '';
+              const diff = (expLimit||0) - (expMarket||0);
+              if(Math.abs(diff) < 0.02) return `<span style="font-size:0.62rem;color:var(--muted);">≈ Tương đương</span>`;
+              const better = diff > 0 ? 'Limit' : 'Market';
+              const betterColor = diff > 0 ? '#2c4a7c' : '#e67e22';
+              const diffAbs = Math.abs(diff).toFixed(2);
+              return `<span style="font-size:0.62rem;font-weight:700;color:${betterColor};">▲ ${better} tốt hơn +${diffAbs}R/lệnh</span>`;
+            })()}
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            ${etBlock('Limit','#2c4a7c',limitStats,steps2)}
+            ${etBlock('Market','#e67e22',marketStats,steps2)}
+          </div>
+        </div>`;
+      })()}
 
       ${(()=>{
         /* ═══════════════════════════════════════════════════════
@@ -8583,6 +8857,10 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById(id)?.addEventListener('change', () => ms55Compute());
   });
   document.getElementById('ms55-be-trigger')?.addEventListener('change', () => ms55Compute());
+  // Entry type checkboxes
+  ['ms55-entry-limit','ms55-entry-market'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', () => ms55Compute());
+  });
   // L/R pivot — rebuild boxes + thống kê
   ['ms55-left','ms55-right'].forEach(id => {
     const el = document.getElementById(id);
