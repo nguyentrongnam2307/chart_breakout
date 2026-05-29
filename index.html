@@ -807,6 +807,28 @@ tbody tr:hover td { background: #faf9f7; }
           <label style="display:flex;align-items:center;gap:3px;font-size:0.68rem;color:var(--muted);cursor:pointer;" title="Vào lệnh ngay tại close của nến break (market order)">
             <input type="checkbox" id="ms55-entry-market" style="accent-color:#e67e22;"> Market
           </label>
+          <label style="display:flex;align-items:center;gap:3px;font-size:0.68rem;color:var(--muted);cursor:pointer;" title="Pullback về EMA50 channel rồi có nến đảo chiều (engulfing / pin bar)">
+            <input type="checkbox" id="ms55-entry-ema" style="accent-color:#8e44ad;"> EMA Touch
+          </label>
+          <!-- EMA Touch sub-controls -->
+          <span id="ms55-ema-controls" style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;opacity:0.4;pointer-events:none;">
+            <span style="width:1px;height:12px;background:var(--border);flex-shrink:0;"></span>
+            <label style="display:flex;align-items:center;gap:2px;font-size:0.65rem;color:var(--muted);" title="Sau khi nến đầu tiên chạm channel, timeout N nến nếu không có pattern">Timeout
+              <input id="ms55-ema-timeout" type="number" min="1" max="20" value="3" style="width:34px;border:1px solid var(--border);border-radius:4px;padding:2px 4px;font-size:0.68rem;font-family:inherit;background:var(--surface);color:var(--ink);outline:none;"> nến
+            </label>
+            <label style="display:flex;align-items:center;gap:2px;font-size:0.65rem;color:var(--muted);" title="SL cho entry EMA: tại low/high nến tín hiệu hay pivot gốc">SL:
+              <select id="ms55-ema-sl-mode" style="border:1px solid var(--border);border-radius:4px;padding:2px 4px;font-size:0.68rem;font-family:inherit;background:var(--surface);color:var(--ink);outline:none;cursor:pointer;">
+                <option value="candle">Nến tín hiệu</option>
+                <option value="pivot">Pivot</option>
+              </select>
+            </label>
+            <label style="display:flex;align-items:center;gap:2px;font-size:0.65rem;color:var(--muted);">
+              <input type="checkbox" id="ms55-ema-engulf" checked style="accent-color:#8e44ad;"> Engulfing
+            </label>
+            <label style="display:flex;align-items:center;gap:2px;font-size:0.65rem;color:var(--muted);">
+              <input type="checkbox" id="ms55-ema-pinbar" checked style="accent-color:#8e44ad;"> Pin bar
+            </label>
+          </span>
           <span style="width:1px;height:14px;background:var(--border);flex-shrink:0;"></span>
           <label style="display:flex;align-items:center;gap:3px;font-size:0.68rem;color:var(--muted);">RR
             <input id="ms55-rr" type="number" min="0.5" max="10" step="0.5" value="2" style="width:40px;border:1px solid var(--border);border-radius:4px;padding:3px 5px;font-size:0.72rem;font-family:inherit;background:var(--surface);color:var(--ink);outline:none;">
@@ -834,6 +856,15 @@ tbody tr:hover td { background: #faf9f7; }
           <label style="display:flex;align-items:center;gap:3px;font-size:0.68rem;color:var(--muted);cursor:pointer;">
             <input type="checkbox" id="ms55-show-sell" checked style="accent-color:var(--red);"> SELL
           </label>
+          <span style="width:1px;height:14px;background:var(--border);flex-shrink:0;"></span>
+          <!-- Result filter buttons -->
+          <span style="display:flex;align-items:center;gap:3px;">
+            <span style="font-size:0.6rem;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-right:1px;">Kết quả:</span>
+            <button id="ms55-res-all" onclick="ms55SetResult('all')" style="padding:1px 7px;font-size:0.65rem;font-weight:700;border-radius:3px;border:1px solid var(--border-dark);background:var(--ink);color:#fff;cursor:pointer;font-family:inherit;transition:all .15s;">Tất cả</button>
+            <button id="ms55-res-tp"  onclick="ms55SetResult('tp')"  style="padding:1px 7px;font-size:0.65rem;font-weight:700;border-radius:3px;border:1px solid #a8d8bb;background:var(--surface);color:var(--green);cursor:pointer;font-family:inherit;transition:all .15s;">TP</button>
+            <button id="ms55-res-be"  onclick="ms55SetResult('be')"  style="padding:1px 7px;font-size:0.65rem;font-weight:700;border-radius:3px;border:1px solid #e0c97a;background:var(--surface);color:#b8860b;cursor:pointer;font-family:inherit;transition:all .15s;">BE</button>
+            <button id="ms55-res-sl"  onclick="ms55SetResult('sl')"  style="padding:1px 7px;font-size:0.65rem;font-weight:700;border-radius:3px;border:1px solid #e8a09a;background:var(--surface);color:var(--red);cursor:pointer;font-family:inherit;transition:all .15s;">SL</button>
+          </span>
           <span style="width:1px;height:14px;background:var(--border);flex-shrink:0;"></span>
           <label style="display:flex;align-items:center;gap:3px;font-size:0.68rem;color:var(--muted);cursor:pointer;">
             <input type="checkbox" id="ms55-session-on" style="accent-color:var(--ink);"> Session
@@ -7533,7 +7564,7 @@ function ms55PivotLows(candles, L, R) {
 // - BUY  = close > pvtH và open <= pvtH  →  BOS nếu HH, CHOCH nếu LH
 // - SELL = close < pvtL và open >= pvtL  →  BOS nếu LL, CHOCH nếu HL
 // - Vẽ line từ barIndex của pivot → barIndex của nến break, tại mức pvtH/pvtL
-function ms55BuildBoxes(candles, L, R, limitBarsParam, emaHData, emaLData) {
+function ms55BuildBoxes(candles, L, R, limitBarsParam, emaHData, emaLData, _slPadArg, emaTouchOpts) {
   const _limitBars = limitBarsParam || window._ms55LimitBars || 5;
   const highs = ms55PivotHighs(candles, L, R);
   const lows  = ms55PivotLows (candles, L, R);
@@ -7627,6 +7658,15 @@ function ms55BuildBoxes(candles, L, R, limitBarsParam, emaHData, emaLData) {
             bosSeq     : curBosSeq,
           });
         }
+        // EMA Touch: đăng ký pending buy (không cần orderValid — chỉ cần channel active)
+        // BOS/CHOCH mới → reset pending cũ, chỉ theo dõi signal mới nhất
+        if (emaTouchOpts && emaTouchOpts.enabled && hasEmaFilter && slBuyLevel !== null) {
+          emaTouchOpts._emaBuyPendings = [{
+            startBarIdx: i, pivotSL: slBuyLevel,
+            signalType: sigType, bosSeq: curBosSeq,
+            orderCount: 0,
+          }];
+        }
         prevPH = pvtH; pvtH = null; slBuyLevel = null; slBuyTime = null;
       }
 
@@ -7671,6 +7711,14 @@ function ms55BuildBoxes(candles, L, R, limitBarsParam, emaHData, emaLData) {
             signalType : sigType,
             bosSeq     : curBosSeqDn,
           });
+        }
+        // EMA Touch: đăng ký pending sell — reset pending cũ, chỉ theo dõi signal mới nhất
+        if (emaTouchOpts && emaTouchOpts.enabled && hasEmaFilter && slSellLevel !== null) {
+          emaTouchOpts._emaSellPendings = [{
+            startBarIdx: i, pivotSL: slSellLevel,
+            signalType: sigType, bosSeq: curBosSeqDn,
+            orderCount: 0,
+          }];
         }
         prevPL = pvtL; pvtL = null; slSellLevel = null; slSellTime = null;
       }
@@ -7722,6 +7770,159 @@ function ms55BuildBoxes(candles, L, R, limitBarsParam, emaHData, emaLData) {
           }
         } else if (elapsed > _limitBars) {
           pendingSell = null;
+        }
+      }
+
+      // ── EMA Touch entry ───────────────────────────────
+      // Chỉ chạy khi có channel + emaTouchOpts bật
+      if (emaTouchOpts && emaTouchOpts.enabled && hasEmaFilter && i > 0) {
+        const eot = emaTouchOpts;
+        const emaH = emaHMap[c.time];
+        const emaL = emaLMap[c.time];
+        const prev = candles[i - 1];
+        if (eot._emaBuyPendings && eot._emaBuyPendings.length > 0 && emaH !== undefined) {
+          const stillPending = [];
+          for (const pen of eot._emaBuyPendings) {
+            // Bước 1: nến chạm channel → bắt đầu đếm timeout
+            if (c.low <= emaH && pen.touchStart === undefined) {
+              pen.touchStart = i;
+            }
+
+            // Bước 2: nếu chưa từng chạm → giữ pending, chờ tiếp
+            if (pen.touchStart === undefined) {
+              stillPending.push(pen);
+              continue;
+            }
+
+            // Bước 3: kiểm tra timeout kể từ lần chạm đầu
+            const sinceTouch = i - pen.touchStart;
+            if (sinceTouch > eot.timeout) {
+              continue; // hết timeout → bỏ pending này
+            }
+
+            // Nến tín hiệu phải: low chạm channel (low <= emaH) VÀ close trên emaH VÀ nến tăng
+            if (c.low > emaH || c.close <= emaH || c.close <= c.open) {
+              stillPending.push(pen);
+              continue;
+            }
+
+            // Bước 5: detect pattern
+            let patternType = null;
+            // Engulfing BUY: nến bullish nuốt nến bearish trước
+            if (eot.engulfing && prev && c.close > c.open &&
+                prev.close < prev.open &&
+                c.close > prev.open && c.open < prev.close) {
+              patternType = 'engulfing';
+            }
+            // Pin bar / Hammer BUY: lower wick >= 2× body, close ở 2/3 trên
+            if (!patternType && eot.pinbar) {
+              const body   = Math.abs(c.close - c.open);
+              const candH  = c.high - c.low;
+              const lowerW = Math.min(c.open, c.close) - c.low;
+              if (candH > 0 && body > 0 && lowerW >= 2 * body &&
+                  c.close >= c.low + candH * (2/3)) {
+                patternType = 'pinbar';
+              }
+            }
+
+            if (patternType) {
+              const slPrice = eot.slMode === 'candle' ? c.low : pen.pivotSL;
+              boxes.push({
+                kind         : 'order',
+                entryType    : 'ema_touch',
+                patternType,
+                dir          : 'buy',
+                entry        : c.close,
+                sl           : slPrice,
+                barIdx       : i,
+                barIdxEnd    : i,
+                time         : c.time,
+                triggerBarIdx: i,
+                signalType   : pen.signalType || 'BOS',
+                bosSeq       : pen.bosSeq || 1,
+              });
+              pen.orderCount = (pen.orderCount || 0) + 1;
+              // Đã đủ 2 lệnh → hủy pending; chưa đủ → giữ để lần chạm sau
+              if (pen.orderCount < 2) {
+                pen.touchStart = undefined; // reset touch để chờ lần chạm MỚI
+                stillPending.push(pen);
+              }
+            } else {
+              // Nến này close trên emaH nhưng không có pattern → giữ pending chờ nến khác
+              stillPending.push(pen);
+            }
+          }
+          eot._emaBuyPendings = stillPending;
+        }
+
+        // ── Detect pattern cho SELL EMA touch ──
+        if (eot._emaSellPendings && eot._emaSellPendings.length > 0 && emaL !== undefined) {
+          const stillPending = [];
+          for (const pen of eot._emaSellPendings) {
+            if (c.high >= emaL && pen.touchStart === undefined) {
+              pen.touchStart = i;
+            }
+
+            if (pen.touchStart === undefined) {
+              stillPending.push(pen);
+              continue;
+            }
+
+            const sinceTouch = i - pen.touchStart;
+            if (sinceTouch > eot.timeout) {
+              continue; // hết timeout → bỏ pending
+            }
+
+            // Nến tín hiệu phải: high chạm channel (high >= emaL) VÀ close dưới emaL VÀ nến giảm
+            if (c.high < emaL || c.close >= emaL || c.close >= c.open) {
+              stillPending.push(pen);
+              continue;
+            }
+
+            let patternType = null;
+            // Engulfing SELL: nến bearish nuốt nến bullish trước
+            if (eot.engulfing && prev && c.close < c.open &&
+                prev.close > prev.open &&
+                c.close < prev.open && c.open > prev.close) {
+              patternType = 'engulfing';
+            }
+            // Pin bar SELL: upper wick >= 2× body, close ở 2/3 dưới
+            if (!patternType && eot.pinbar) {
+              const body   = Math.abs(c.close - c.open);
+              const candH  = c.high - c.low;
+              const upperW = c.high - Math.max(c.open, c.close);
+              if (candH > 0 && body > 0 && upperW >= 2 * body &&
+                  c.close <= c.low + candH * (1/3)) {
+                patternType = 'pinbar';
+              }
+            }
+
+            if (patternType) {
+              const slPrice = eot.slMode === 'candle' ? c.high : pen.pivotSL;
+              boxes.push({
+                kind         : 'order',
+                entryType    : 'ema_touch',
+                patternType,
+                dir          : 'sell',
+                entry        : c.close,
+                sl           : slPrice,
+                barIdx       : i,
+                barIdxEnd    : i,
+                time         : c.time,
+                triggerBarIdx: i,
+                signalType   : pen.signalType || 'BOS',
+                bosSeq       : pen.bosSeq || 1,
+              });
+              pen.orderCount = (pen.orderCount || 0) + 1;
+              if (pen.orderCount < 2) {
+                pen.touchStart = undefined; // reset touch để chờ lần chạm MỚI
+                stillPending.push(pen);
+              }
+            } else {
+              stillPending.push(pen);
+            }
+          }
+          eot._emaSellPendings = stillPending;
         }
       }
     }
@@ -7884,8 +8085,10 @@ function ms55DrawBoxes() {
         // Filter by entry type
         const showLimit  = document.getElementById('ms55-entry-limit')?.checked !== false;
         const showMarket = document.getElementById('ms55-entry-market')?.checked;
-        if (ob.entryType === 'limit'  && !showLimit)  return false;
-        if (ob.entryType === 'market' && !showMarket) return false;
+        const showEmaTouch = document.getElementById('ms55-entry-ema')?.checked;
+        if (ob.entryType === 'limit'     && !showLimit)    return false;
+        if (ob.entryType === 'market'    && !showMarket)   return false;
+        if (ob.entryType === 'ema_touch' && !showEmaTouch) return false;
         const endIdx = Math.min(ob.barIdx + extendBars, allCandles.length - 1);
         const cEnd   = allCandles[endIdx];
         return cEnd.time >= visFrom - 86400 && c.time <= visTo + 86400;
@@ -7893,6 +8096,9 @@ function ms55DrawBoxes() {
       orderBoxes.forEach(ob => {
         if (ob.dir === 'buy'  && !showBuyBox)  return;
         if (ob.dir === 'sell' && !showSellBox) return;
+        // Result filter
+        const _resFilter = window._ms55ResultFilter || 'all';
+        if (_resFilter !== 'all' && ob.resultLabel && ob.resultLabel !== _resFilter) return;
 
         // Tìm time của bar (barIdx + extendBars) — cần map barIdx → time
         const trigCandle = allCandles[ob.barIdx];
@@ -7976,11 +8182,15 @@ function ms55DrawBoxes() {
         ctx.beginPath();
         ctx.moveTo(xStart, yEntry);
         ctx.lineTo(xEnd,   yEntry);
-        // Market entry = đường cam cam, Limit = màu thường
+        // Market entry = đường cam cam, Limit = màu thường, EMA Touch = tím
         if (ob.entryType === 'market') {
           ctx.strokeStyle = ob.dir === 'buy' ? 'rgba(230,126,34,0.9)' : 'rgba(230,126,34,0.9)';
           ctx.lineWidth   = 1.5;
           ctx.setLineDash([2,2]);
+        } else if (ob.entryType === 'ema_touch') {
+          ctx.strokeStyle = ob.dir === 'buy' ? 'rgba(142,68,173,0.9)' : 'rgba(142,68,173,0.9)';
+          ctx.lineWidth   = 1.5;
+          ctx.setLineDash([5,2,2,2]);
         } else {
           ctx.strokeStyle = ob.dir === 'buy' ? 'rgba(44,74,124,0.8)' : 'rgba(192,57,43,0.8)';
           ctx.lineWidth   = 1.5;
@@ -8086,7 +8296,15 @@ window.ms55Compute = function() {
   const _refPrice2  = candles && candles.length ? candles[candles.length-1].close : 1;
   const _pointSize2 = _refPrice2 > 20 ? 0.001 : 0.00001;
   const _slPad    = _slPadPts * _pointSize2;
-  ms55Boxes = ms55BuildBoxes(candles, L, R, window._ms55LimitBars, emaHData, emaLData, _slPad);
+  ms55Boxes = ms55BuildBoxes(candles, L, R, window._ms55LimitBars, emaHData, emaLData, _slPad, {
+    enabled  : !!(document.getElementById('ms55-entry-ema')?.checked && emaHData),
+    timeout  : Math.max(1, parseInt(document.getElementById('ms55-ema-timeout')?.value) || 3),
+    slMode   : document.getElementById('ms55-ema-sl-mode')?.value || 'candle',
+    engulfing: document.getElementById('ms55-ema-engulf')?.checked !== false,
+    pinbar   : document.getElementById('ms55-ema-pinbar')?.checked !== false,
+    _emaBuyPendings : [],
+    _emaSellPendings: [],
+  });
 
   const signalBoxes = ms55Boxes.filter(b => b.kind !== 'order');
   const bosUp   = signalBoxes.filter(b=>b.type==='BOS'  &&b.dir==='up').length;
@@ -8123,6 +8341,7 @@ window.ms55Compute = function() {
 
   const showLimitStat  = document.getElementById('ms55-entry-limit')?.checked !== false;
   const showMarketStat = document.getElementById('ms55-entry-market')?.checked;
+  const showEmaStat    = document.getElementById('ms55-entry-ema')?.checked;
 
   const orderBoxes = ms55Boxes.filter(b => {
     if (b.kind !== 'order') return false;
@@ -8130,8 +8349,9 @@ window.ms55Compute = function() {
     if (b.dir === 'sell' && !showSellStat) return false;
     if (b.signalType === 'BOS'   && !showBOSStat)   return false;
     if (b.signalType === 'CHOCH' && !showCHOCHStat) return false;
-    if (b.entryType === 'limit'  && !showLimitStat)  return false;
-    if (b.entryType === 'market' && !showMarketStat) return false;
+    if (b.entryType === 'limit'     && !showLimitStat)  return false;
+    if (b.entryType === 'market'    && !showMarketStat) return false;
+    if (b.entryType === 'ema_touch' && !showEmaStat)    return false;
     if (!sessionOn) return true;
     const d   = new Date(b.time * 1000);
     const min = d.getUTCHours() * 60 + d.getUTCMinutes();
@@ -8156,10 +8376,15 @@ window.ms55Compute = function() {
   let beHitBuy=0, beHitSell=0;  // BE: đạt TPn rồi quay về entry
   let bosSL=0, chochSL=0, bosBE=0, chochBE=0;
 
-  // Per-entryType stats (limit / market)
+  // Per-entryType stats (limit / market / ema_touch)
   const limitStats  = { total:0, tpHits:{}, slHit:0, beHit:0, buyTotal:0, sellTotal:0 };
   const marketStats = { total:0, tpHits:{}, slHit:0, beHit:0, buyTotal:0, sellTotal:0 };
-  for(let s=1;s<=steps2;s++){ limitStats.tpHits[s]=0; marketStats.tpHits[s]=0; }
+  const emaTouchStats = { total:0, tpHits:{}, slHit:0, beHit:0, buyTotal:0, sellTotal:0,
+    engulfHits:{}, pinbarHits:{} };
+  for(let s=1;s<=steps2;s++){
+    limitStats.tpHits[s]=0; marketStats.tpHits[s]=0;
+    emaTouchStats.tpHits[s]=0; emaTouchStats.engulfHits[s]=0; emaTouchStats.pinbarHits[s]=0;
+  }
 
   // Per-BOS-sequence stats: seq1 (CHOCH hoặc BOS đầu), seq2, seq3+ (BOS lần 3 trở đi)
   // Chỉ áp dụng cho TẤT CẢ lệnh (không phân biệt entry type)
@@ -8177,7 +8402,9 @@ window.ms55Compute = function() {
     else                 sellTotal++;
     const isBOSOrder = ob.signalType === 'BOS';
     if (isBOSOrder) bosTotal++; else chochTotal++;
-    const etStats = ob.entryType === 'market' ? marketStats : limitStats;
+    const etStats = ob.entryType === 'market' ? marketStats
+                  : ob.entryType === 'ema_touch' ? emaTouchStats
+                  : limitStats;
     etStats.total++;
     if(ob.dir==='buy') etStats.buyTotal++; else etStats.sellTotal++;
     // BOS sequence bucket: 1, 2, 3+
@@ -8229,6 +8456,12 @@ window.ms55Compute = function() {
         }
       }
     }
+    // Gán resultLabel để filter trên chart
+    if (hitSL) ob.resultLabel = 'sl';
+    else if (hitBE) ob.resultLabel = 'be';
+    else if (tpReached.some(Boolean)) ob.resultLabel = 'tp';
+    else ob.resultLabel = 'open';
+
     if (hitSL) {
       if(ob.dir==='buy') slHitBuy++; else slHitSell++;
       if(isBOSOrder) bosSL++; else chochSL++;
@@ -8247,6 +8480,11 @@ window.ms55Compute = function() {
         if(isBOSOrder) bosTP[i+1]++; else chochTP[i+1]++;
         etStats.tpHits[i+1]++;
         sqSt.tpHits[i+1]++;
+        // EMA Touch pattern breakdown
+        if(ob.entryType === 'ema_touch') {
+          if(ob.patternType === 'engulfing') emaTouchStats.engulfHits[i+1]=(emaTouchStats.engulfHits[i+1]||0)+1;
+          if(ob.patternType === 'pinbar')    emaTouchStats.pinbarHits[i+1]=(emaTouchStats.pinbarHits[i+1]||0)+1;
+        }
       }
     });
   });
@@ -8279,8 +8517,9 @@ window.ms55Compute = function() {
   const expTotal   = calcExpectancy({total:totalOrders, tpHits, slHit:totalSLHit, beHit:totalBEHit}, steps2, rrVal);
   const expBOS     = calcExpectancy({total:bosTotal,    tpHits:bosTP,   slHit:bosSL,   beHit:bosBE},   steps2, rrVal);
   const expCHOCH   = calcExpectancy({total:chochTotal,  tpHits:chochTP, slHit:chochSL, beHit:chochBE}, steps2, rrVal);
-  const expLimit   = calcExpectancy(limitStats,  steps2, rrVal);
-  const expMarket  = calcExpectancy(marketStats, steps2, rrVal);
+  const expLimit   = calcExpectancy(limitStats,    steps2, rrVal);
+  const expMarket  = calcExpectancy(marketStats,   steps2, rrVal);
+  const expEmaTouch= calcExpectancy(emaTouchStats, steps2, rrVal);
   const expSeq1    = calcExpectancy(seqStats[1], steps2, rrVal);
   const expSeq2    = calcExpectancy(seqStats[2], steps2, rrVal);
   const expSeq3    = calcExpectancy(seqStats[3], steps2, rrVal);
@@ -8339,9 +8578,16 @@ window.ms55Compute = function() {
   const chochBEpct = chochTotal ? (chochBE/chochTotal*100).toFixed(0) : 0;
 
   document.getElementById('ms55-order-stats').style.display = totalOrders ? '' : 'none';
+  const _prevCollapsed = document.getElementById('ms55-stat-body')?.dataset.collapsed === '1';
   document.getElementById('ms55-order-stats').innerHTML = totalOrders ? `
-    <div style="border:1px solid var(--border);border-radius:6px;padding:10px 14px;background:var(--surface);">
-      <div style="font-size:0.6rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--faint);font-weight:600;margin-bottom:8px;">Thống kê lệnh Order Setup${sessionOn ? ` <span style="font-weight:400;letter-spacing:0;text-transform:none;color:var(--blue);">(Session ${sessionFrom}–${sessionTo} UTC)</span>` : ''}</div>
+    <div style="border:1px solid var(--border);border-radius:6px;background:var(--surface);overflow:hidden;">
+      <div id="ms55-stat-head" onclick="ms55ToggleStat()" style="display:flex;align-items:center;justify-content:space-between;padding:7px 14px;cursor:pointer;user-select:none;border-bottom:1px solid var(--border);background:var(--bg);">
+        <span style="font-size:0.6rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--faint);font-weight:600;">
+          THỐNG KÊ LỆNH ORDER SETUP${sessionOn ? ` <span style="font-weight:400;letter-spacing:0;text-transform:none;color:var(--blue);margin-left:6px;">(Session ${sessionFrom}–${sessionTo} UTC)</span>` : ''}
+        </span>
+        <span id="ms55-stat-chevron" style="font-size:0.55rem;color:var(--faint);transition:transform .25s;">▲</span>
+      </div>
+      <div id="ms55-stat-body" style="padding:10px 14px;overflow:hidden;transition:max-height .3s ease,opacity .25s,padding .25s;max-height:2000px;opacity:1;">
 
       <!-- Tổng quan -->
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px;">
@@ -8494,25 +8740,43 @@ window.ms55Compute = function() {
           </div>`;
         }
         return `
-        <!-- Limit vs Market breakdown -->
+        <!-- Limit vs Market vs EMA Touch breakdown -->
         <div style="margin-bottom:12px;">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid var(--border);">
             <div style="font-size:0.55rem;letter-spacing:2px;text-transform:uppercase;color:var(--faint);font-weight:600;">
-              So sánh Limit vs Market
+              So sánh Limit / Market / EMA Touch
             </div>
             ${(()=>{
-              if(expLimit===null && expMarket===null) return '';
-              const diff = (expLimit||0) - (expMarket||0);
-              if(Math.abs(diff) < 0.02) return `<span style="font-size:0.62rem;color:var(--muted);">≈ Tương đương</span>`;
-              const better = diff > 0 ? 'Limit' : 'Market';
-              const betterColor = diff > 0 ? '#2c4a7c' : '#e67e22';
-              const diffAbs = Math.abs(diff).toFixed(2);
-              return `<span style="font-size:0.62rem;font-weight:700;color:${betterColor};">▲ ${better} tốt hơn +${diffAbs}R/lệnh</span>`;
+              const exps = [expLimit, expMarket, expEmaTouch].filter(x=>x!==null);
+              if(exps.length < 2) return '';
+              const labels = ['Limit','Market','EMA Touch'];
+              const colors = ['#2c4a7c','#e67e22','#8e44ad'];
+              const vals = [expLimit||0, expMarket||0, expEmaTouch||0];
+              const maxIdx = vals.indexOf(Math.max(...vals));
+              if(exps.length < 2) return '';
+              return `<span style="font-size:0.62rem;font-weight:700;color:${colors[maxIdx]};">▲ ${labels[maxIdx]} tốt nhất</span>`;
             })()}
           </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div style="display:grid;grid-template-columns:repeat(${emaTouchStats.total>0?3:2},1fr);gap:10px;">
             ${etBlock('Limit','#2c4a7c',limitStats,steps2)}
             ${etBlock('Market','#e67e22',marketStats,steps2)}
+            ${emaTouchStats.total>0 ? (() => {
+              // EMA Touch block with pattern breakdown
+              const base = etBlock('EMA Touch','#8e44ad',emaTouchStats,steps2);
+              // Pattern breakdown note
+              const engN = Object.values(emaTouchStats.engulfHits).reduce((a,b)=>a+b,0);
+              const pinN = Object.values(emaTouchStats.pinbarHits).reduce((a,b)=>a+b,0);
+              const allEmaOrders = orderBoxes.filter(ob=>ob.entryType==='ema_touch');
+              const engTotal = allEmaOrders.filter(ob=>ob.patternType==='engulfing').length;
+              const pinTotal = allEmaOrders.filter(ob=>ob.patternType==='pinbar').length;
+              const engWr = engTotal ? Math.round(engN/engTotal*100) : 0;
+              const pinWr = pinTotal ? Math.round(pinN/pinTotal*100) : 0;
+              const patNote = `<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
+                ${engTotal>0?`<span style="font-size:0.62rem;padding:1px 6px;border-radius:3px;background:#f3e8ff;color:#8e44ad;border:1px solid #c9a8e8;font-weight:700;">Engulfing ${engWr}% (${engTotal})</span>`:''}
+                ${pinTotal>0?`<span style="font-size:0.62rem;padding:1px 6px;border-radius:3px;background:#f3e8ff;color:#8e44ad;border:1px solid #c9a8e8;font-weight:700;">Pin bar ${pinWr}% (${pinTotal})</span>`:''}
+              </div>`;
+              return base.replace('</div>', patNote + '</div>');
+            })() : ''}
           </div>
         </div>`;
       })()}
@@ -8796,9 +9060,11 @@ window.ms55Compute = function() {
         </div>`;
       })()}
 
+      </div>
     </div>` : '';
 
   } // end if (_showOrderStat)
+  if (typeof _ms55AfterRender === 'function') _ms55AfterRender();
 
   // Vẽ lên chart
   if (!ms55Active) {
@@ -8858,7 +9124,26 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('ms55-be-trigger')?.addEventListener('change', () => ms55Compute());
   // Entry type checkboxes
-  ['ms55-entry-limit','ms55-entry-market'].forEach(id => {
+  ['ms55-entry-limit','ms55-entry-market','ms55-entry-ema'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', () => {
+      // Toggle EMA controls visibility
+      if(id === 'ms55-entry-ema') {
+        const ctrl = document.getElementById('ms55-ema-controls');
+        const on = document.getElementById('ms55-entry-ema')?.checked;
+        if(ctrl) { ctrl.style.opacity = on ? '1' : '0.4'; ctrl.style.pointerEvents = on ? '' : 'none'; }
+      }
+      ms55Compute();
+    });
+  });
+  // EMA touch sub-inputs
+  ['ms55-ema-timeout'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    let _t;
+    el.addEventListener('input',  () => { clearTimeout(_t); _t = setTimeout(() => ms55Compute(), 400); });
+    el.addEventListener('change', () => { clearTimeout(_t); ms55Compute(); });
+  });
+  ['ms55-ema-sl-mode','ms55-ema-engulf','ms55-ema-pinbar'].forEach(id => {
     document.getElementById(id)?.addEventListener('change', () => ms55Compute());
   });
   // L/R pivot — rebuild boxes + thống kê
@@ -8870,6 +9155,71 @@ document.addEventListener('DOMContentLoaded', () => {
     el.addEventListener('change', () => { clearTimeout(_t); ms55Compute(); });
   });
 });
+
+window.ms55ToggleStat = function() {
+  const body     = document.getElementById('ms55-stat-body');
+  const chevron  = document.getElementById('ms55-stat-chevron');
+  if (!body) return;
+  const isOpen = body.dataset.collapsed !== '1';
+  if (isOpen) {
+    // Thu gọn
+    body.style.maxHeight = '0px';
+    body.style.opacity   = '0';
+    body.style.padding   = '0 14px';
+    body.dataset.collapsed = '1';
+    if (chevron) chevron.style.transform = 'rotate(180deg)';
+    window._ms55StatCollapsed = true;
+  } else {
+    // Mở ra
+    body.style.maxHeight = '2000px';
+    body.style.opacity   = '1';
+    body.style.padding   = '10px 14px';
+    body.dataset.collapsed = '0';
+    if (chevron) chevron.style.transform = 'rotate(0deg)';
+    window._ms55StatCollapsed = false;
+  }
+};
+
+// Sau khi ms55Compute render lại, restore trạng thái collapsed nếu cần
+const _ms55AfterRender = () => {
+  if (window._ms55StatCollapsed) {
+    const body = document.getElementById('ms55-stat-body');
+    const chevron = document.getElementById('ms55-stat-chevron');
+    if (body) {
+      body.style.maxHeight = '0px';
+      body.style.opacity   = '0';
+      body.style.padding   = '0 14px';
+      body.dataset.collapsed = '1';
+    }
+    if (chevron) chevron.style.transform = 'rotate(180deg)';
+  }
+};
+
+window.ms55SetResult = function(val) {
+  window._ms55ResultFilter = val;
+  // Update button styles
+  const btns = {
+    all: document.getElementById('ms55-res-all'),
+    tp:  document.getElementById('ms55-res-tp'),
+    be:  document.getElementById('ms55-res-be'),
+    sl:  document.getElementById('ms55-res-sl'),
+  };
+  const colors = {
+    tp:  { active: { bg:'var(--green)', color:'#fff', border:'var(--green)' }, idle: { bg:'var(--surface)', color:'var(--green)', border:'#a8d8bb' } },
+    be:  { active: { bg:'#b8860b',      color:'#fff', border:'#b8860b'      }, idle: { bg:'var(--surface)', color:'#b8860b',      border:'#e0c97a' } },
+    sl:  { active: { bg:'var(--red)',   color:'#fff', border:'var(--red)'   }, idle: { bg:'var(--surface)', color:'var(--red)',   border:'#e8a09a' } },
+    all: { active: { bg:'var(--ink)',   color:'#fff', border:'var(--ink)'   }, idle: { bg:'var(--surface)', color:'var(--muted)', border:'var(--border-dark)' } },
+  };
+  Object.entries(btns).forEach(([k, btn]) => {
+    if (!btn) return;
+    const s = k === val ? colors[k].active : colors[k].idle;
+    btn.style.background = s.bg;
+    btn.style.color      = s.color;
+    btn.style.borderColor = s.border;
+  });
+  // Redraw chart
+  if (typeof ms55DrawBoxes === 'function') ms55DrawBoxes();
+};
 
 window.ms55Toggle = function() {
   const panel = document.getElementById('ms55-panel');
