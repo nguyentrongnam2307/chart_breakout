@@ -9060,6 +9060,368 @@ window.ms55Compute = function() {
         </div>`;
       })()}
 
+      ${(()=>{
+        /* ═══════════════════════════════════════════════════════
+           BLOCK 4 — Nến ngay sau nến Breakout (Signal candle)
+           Phân tích nến [breakIdx + 1] so với chiều break:
+           - Cùng chiều (same): break UP → nến sau tăng; break DN → nến sau giảm
+           - Ngược chiều (reverse): break UP → nến sau giảm; break DN → nến sau tăng
+           - Doji (open ≈ close, threshold 20% body/range)
+           Chỉ dùng signalBoxes (không phải order), mỗi break 1 lần
+        ═══════════════════════════════════════════════════════ */
+
+        // Lấy signalBoxes đã lọc theo session + BUY/SELL checkbox
+        const filteredSignals = signalBoxes.filter(b => {
+          if (b.dir === 'up' && !showBuyStat)  return false;
+          if (b.dir === 'dn' && !showSellStat) return false;
+          if (!sessionOn) return true;
+          const d = new Date(b.timeR * 1000);
+          const min = d.getUTCHours() * 60 + d.getUTCMinutes();
+          return min >= sfMin && min < stMin;
+        });
+        if (!filteredSignals.length) return '';
+
+        // Map time → barIdx (dùng candles)
+        const timeToIdx = {};
+        candles.forEach((c, i) => { timeToIdx[c.time] = i; });
+
+        let total = 0;
+        let sameDir = 0, reverseDir = 0, dojiCount = 0;
+        // Breakdown theo dir
+        let upBreak_same=0, upBreak_rev=0, upBreak_doji=0, upBreak_total=0;
+        let dnBreak_same=0, dnBreak_rev=0, dnBreak_doji=0, dnBreak_total=0;
+        // Breakdown theo BOS vs CHOCH
+        let bos_same=0, bos_rev=0, bos_doji=0, bos_total=0;
+        let choch_same=0, choch_rev=0, choch_doji=0, choch_total=0;
+
+        filteredSignals.forEach(sig => {
+          const breakIdx = timeToIdx[sig.timeR];
+          if (breakIdx === undefined) return;
+          const nextIdx = breakIdx + 1;
+          if (nextIdx >= candles.length) return;
+          const nc = candles[nextIdx];
+
+          // Phân loại nến sau: doji / tăng / giảm
+          const body = Math.abs(nc.close - nc.open);
+          const range = nc.high - nc.low;
+          const isDoji = range > 0 && body / range < 0.2;
+          const isUp = nc.close > nc.open;
+          const isDn = nc.close < nc.open;
+
+          // Cùng chiều hay ngược chiều
+          let cat; // 'same' | 'reverse' | 'doji'
+          if (isDoji) {
+            cat = 'doji';
+          } else if (sig.dir === 'up') {
+            cat = isUp ? 'same' : 'reverse';
+          } else {
+            cat = isDn ? 'same' : 'reverse';
+          }
+
+          total++;
+          if (cat === 'same') sameDir++;
+          else if (cat === 'reverse') reverseDir++;
+          else dojiCount++;
+
+          const isBOSSig = sig.type === 'BOS';
+          if (sig.dir === 'up') {
+            upBreak_total++;
+            if (cat === 'same') upBreak_same++;
+            else if (cat === 'reverse') upBreak_rev++;
+            else upBreak_doji++;
+          } else {
+            dnBreak_total++;
+            if (cat === 'same') dnBreak_same++;
+            else if (cat === 'reverse') dnBreak_rev++;
+            else dnBreak_doji++;
+          }
+          if (isBOSSig) {
+            bos_total++;
+            if (cat === 'same') bos_same++;
+            else if (cat === 'reverse') bos_rev++;
+            else bos_doji++;
+          } else {
+            choch_total++;
+            if (cat === 'same') choch_same++;
+            else if (cat === 'reverse') choch_rev++;
+            else choch_doji++;
+          }
+        });
+
+        if (!total) return '';
+
+        const pct = (n, t) => t ? Math.round(n / t * 100) : 0;
+        const pctStr = (n, t) => t ? Math.round(n / t * 100) + '%' : '—';
+
+        // Mini progress row
+        function nextCandleRow(label, labelColor, same, rev, doji, tot) {
+          if (!tot) return `<div style="display:flex;align-items:center;gap:6px;opacity:0.5;padding:3px 0;">
+            <span style="font-size:0.65rem;color:${labelColor};font-weight:700;min-width:80px;">${label}</span>
+            <span style="font-size:0.62rem;color:var(--muted);">Không có dữ liệu</span></div>`;
+          const samePct = pct(same, tot);
+          const revPct  = pct(rev, tot);
+          const dojiPct = pct(doji, tot);
+          return `<div style="display:grid;grid-template-columns:80px 1fr;align-items:center;gap:8px;padding:3px 0;">
+            <span style="font-size:0.63rem;color:${labelColor};font-weight:700;">${label}<br><span style="font-weight:400;font-size:0.58rem;color:var(--muted);">${tot} break</span></span>
+            <div>
+              <div style="display:flex;border-radius:3px;overflow:hidden;height:14px;gap:1px;">
+                <div style="width:${samePct}%;background:#2c4a7c;min-width:${same?2:0}px;" title="Cùng chiều ${same}/${tot}"></div>
+                <div style="width:${revPct}%;background:#c0392b;min-width:${rev?2:0}px;" title="Ngược chiều ${rev}/${tot}"></div>
+                <div style="width:${dojiPct}%;background:#b8860b;min-width:${doji?2:0}px;" title="Doji ${doji}/${tot}"></div>
+              </div>
+              <div style="display:flex;gap:8px;margin-top:3px;flex-wrap:wrap;">
+                <span style="font-size:0.6rem;color:#2c4a7c;font-weight:700;">↺ Cùng: ${same} (${samePct}%)</span>
+                <span style="font-size:0.6rem;color:#c0392b;font-weight:700;">↻ Ngược: ${rev} (${revPct}%)</span>
+                ${doji > 0 ? `<span style="font-size:0.6rem;color:#b8860b;font-weight:700;">◇ Doji: ${doji} (${dojiPct}%)</span>` : ''}
+              </div>
+            </div>
+          </div>`;
+        }
+
+        const totalSamePct   = pct(sameDir, total);
+        const totalRevPct    = pct(reverseDir, total);
+        const totalDojiPct   = pct(dojiCount, total);
+
+        // Dominant: ai nhiều hơn?
+        const dominantLabel  = sameDir >= reverseDir
+          ? `<span style="color:#2c4a7c;font-weight:700;">Cùng chiều</span> chiếm ưu thế`
+          : `<span style="color:#c0392b;font-weight:700;">Ngược chiều</span> chiếm ưu thế`;
+
+        return `<div style="border:1px solid var(--border);border-radius:5px;padding:8px 10px;margin-bottom:10px;">
+          <div style="font-size:0.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--faint);font-weight:600;margin-bottom:8px;">
+            🕯️ Nến ngay sau nến Breakout
+            <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted);margin-left:6px;">nến [break + 1] cùng chiều hay ngược chiều?</span>
+          </div>
+
+          <!-- Tổng quan -->
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px;">
+            <div style="text-align:center;padding:6px 4px;background:var(--blue-lt);border-radius:4px;border:1px solid #a8bad8;">
+              <div style="font-size:0.58rem;color:var(--blue);font-weight:600;margin-bottom:2px;">↺ CÙNG CHIỀU</div>
+              <div style="font-size:1.2rem;font-weight:700;color:#2c4a7c;">${totalSamePct}%</div>
+              <div style="font-size:0.58rem;color:var(--muted);">${sameDir} / ${total}</div>
+            </div>
+            <div style="text-align:center;padding:6px 4px;background:var(--red-lt);border-radius:4px;border:1px solid #e8a09a;">
+              <div style="font-size:0.58rem;color:var(--red);font-weight:600;margin-bottom:2px;">↻ NGƯỢC CHIỀU</div>
+              <div style="font-size:1.2rem;font-weight:700;color:#c0392b;">${totalRevPct}%</div>
+              <div style="font-size:0.58rem;color:var(--muted);">${reverseDir} / ${total}</div>
+            </div>
+            <div style="text-align:center;padding:6px 4px;background:#fffbf0;border-radius:4px;border:1px solid #e8d88a;">
+              <div style="font-size:0.58rem;color:#7a6a1a;font-weight:600;margin-bottom:2px;">◇ DOJI</div>
+              <div style="font-size:1.2rem;font-weight:700;color:#b8860b;">${totalDojiPct}%</div>
+              <div style="font-size:0.58rem;color:var(--muted);">${dojiCount} / ${total}</div>
+            </div>
+          </div>
+
+          <!-- Nhận xét nhanh -->
+          <div style="font-size:0.67rem;color:var(--ink-2);margin-bottom:8px;padding:5px 8px;background:var(--bg);border-radius:3px;border-left:2px solid var(--border-dark);">
+            Trên ${total} lần breakout: ${dominantLabel}
+            ${Math.abs(totalSamePct - totalRevPct) <= 10
+              ? ' — <span style="color:#b8860b;">Không có xu hướng rõ, hai chiều gần bằng nhau</span>'
+              : ''}
+          </div>
+
+          <!-- Breakdown theo hướng break -->
+          <div style="margin-bottom:8px;">
+            <div style="font-size:0.55rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--faint);font-weight:600;margin-bottom:5px;">Theo hướng Breakout</div>
+            <div style="display:flex;flex-direction:column;gap:6px;padding:6px 8px;background:var(--bg);border-radius:4px;">
+              ${nextCandleRow('Break UP ▲','#2c4a7c', upBreak_same, upBreak_rev, upBreak_doji, upBreak_total)}
+              ${nextCandleRow('Break DN ▼','#c0392b', dnBreak_same, dnBreak_rev, dnBreak_doji, dnBreak_total)}
+            </div>
+          </div>
+
+          <!-- Breakdown BOS vs CHOCH -->
+          <div>
+            <div style="font-size:0.55rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--faint);font-weight:600;margin-bottom:5px;">Theo loại Signal</div>
+            <div style="display:flex;flex-direction:column;gap:6px;padding:6px 8px;background:var(--bg);border-radius:4px;">
+              ${nextCandleRow('BOS','var(--ink)', bos_same, bos_rev, bos_doji, bos_total)}
+              ${nextCandleRow('CHOCH','#2c4a7c', choch_same, choch_rev, choch_doji, choch_total)}
+            </div>
+          </div>
+
+          <!-- Chú thích -->
+          <div style="margin-top:6px;font-size:0.6rem;color:var(--faint);line-height:1.6;">
+            <b>Cùng chiều</b>: break UP → nến sau tăng; break DN → nến sau giảm.
+            <b>Ngược chiều</b>: nến sau đi ngược break.
+            <b>Doji</b>: body &lt; 20% range (thân nến rất nhỏ).
+          </div>
+        </div>`;
+      })()}
+
+      ${(()=>{
+        /* ═══════════════════════════════════════════════════════
+           BLOCK 5 — Nến [break + 2] sau nến Breakout
+           Phân tích nến thứ 2 sau signal candle (breakIdx + 2):
+           - Cùng chiều / Ngược chiều / Doji so với chiều break gốc
+        ═══════════════════════════════════════════════════════ */
+
+        const filteredSignals2 = signalBoxes.filter(b => {
+          if (b.dir === 'up' && !showBuyStat)  return false;
+          if (b.dir === 'dn' && !showSellStat) return false;
+          if (!sessionOn) return true;
+          const d = new Date(b.timeR * 1000);
+          const min = d.getUTCHours() * 60 + d.getUTCMinutes();
+          return min >= sfMin && min < stMin;
+        });
+        if (!filteredSignals2.length) return '';
+
+        const timeToIdx2 = {};
+        candles.forEach((c, i) => { timeToIdx2[c.time] = i; });
+
+        let t2_total = 0;
+        let t2_same = 0, t2_rev = 0, t2_doji = 0;
+        let t2_upBreak_same=0, t2_upBreak_rev=0, t2_upBreak_doji=0, t2_upBreak_total=0;
+        let t2_dnBreak_same=0, t2_dnBreak_rev=0, t2_dnBreak_doji=0, t2_dnBreak_total=0;
+        let t2_bos_same=0, t2_bos_rev=0, t2_bos_doji=0, t2_bos_total=0;
+        let t2_choch_same=0, t2_choch_rev=0, t2_choch_doji=0, t2_choch_total=0;
+
+        filteredSignals2.forEach(sig => {
+          const breakIdx = timeToIdx2[sig.timeR];
+          if (breakIdx === undefined) return;
+          const nextIdx = breakIdx + 2;
+          if (nextIdx >= candles.length) return;
+          const nc = candles[nextIdx];
+
+          const body = Math.abs(nc.close - nc.open);
+          const range = nc.high - nc.low;
+          const isDoji = range > 0 && body / range < 0.2;
+          const isUp = nc.close > nc.open;
+          const isDn = nc.close < nc.open;
+
+          let cat;
+          if (isDoji) {
+            cat = 'doji';
+          } else if (sig.dir === 'up') {
+            cat = isUp ? 'same' : 'reverse';
+          } else {
+            cat = isDn ? 'same' : 'reverse';
+          }
+
+          t2_total++;
+          if (cat === 'same') t2_same++;
+          else if (cat === 'reverse') t2_rev++;
+          else t2_doji++;
+
+          const isBOSSig = sig.type === 'BOS';
+          if (sig.dir === 'up') {
+            t2_upBreak_total++;
+            if (cat === 'same') t2_upBreak_same++;
+            else if (cat === 'reverse') t2_upBreak_rev++;
+            else t2_upBreak_doji++;
+          } else {
+            t2_dnBreak_total++;
+            if (cat === 'same') t2_dnBreak_same++;
+            else if (cat === 'reverse') t2_dnBreak_rev++;
+            else t2_dnBreak_doji++;
+          }
+          if (isBOSSig) {
+            t2_bos_total++;
+            if (cat === 'same') t2_bos_same++;
+            else if (cat === 'reverse') t2_bos_rev++;
+            else t2_bos_doji++;
+          } else {
+            t2_choch_total++;
+            if (cat === 'same') t2_choch_same++;
+            else if (cat === 'reverse') t2_choch_rev++;
+            else t2_choch_doji++;
+          }
+        });
+
+        if (!t2_total) return '';
+
+        const pct2 = (n, t) => t ? Math.round(n / t * 100) : 0;
+
+        function nextCandleRow2(label, labelColor, same, rev, doji, tot) {
+          if (!tot) return `<div style="display:flex;align-items:center;gap:6px;opacity:0.5;padding:3px 0;">
+            <span style="font-size:0.65rem;color:${labelColor};font-weight:700;min-width:80px;">${label}</span>
+            <span style="font-size:0.62rem;color:var(--muted);">Không có dữ liệu</span></div>`;
+          const samePct = pct2(same, tot);
+          const revPct  = pct2(rev, tot);
+          const dojiPct = pct2(doji, tot);
+          return `<div style="display:grid;grid-template-columns:80px 1fr;align-items:center;gap:8px;padding:3px 0;">
+            <span style="font-size:0.63rem;color:${labelColor};font-weight:700;">${label}<br><span style="font-weight:400;font-size:0.58rem;color:var(--muted);">${tot} break</span></span>
+            <div>
+              <div style="display:flex;border-radius:3px;overflow:hidden;height:14px;gap:1px;">
+                <div style="width:${samePct}%;background:#2c4a7c;min-width:${same?2:0}px;" title="Cùng chiều ${same}/${tot}"></div>
+                <div style="width:${revPct}%;background:#c0392b;min-width:${rev?2:0}px;" title="Ngược chiều ${rev}/${tot}"></div>
+                <div style="width:${dojiPct}%;background:#b8860b;min-width:${doji?2:0}px;" title="Doji ${doji}/${tot}"></div>
+              </div>
+              <div style="display:flex;gap:8px;margin-top:3px;flex-wrap:wrap;">
+                <span style="font-size:0.6rem;color:#2c4a7c;font-weight:700;">↺ Cùng: ${same} (${samePct}%)</span>
+                <span style="font-size:0.6rem;color:#c0392b;font-weight:700;">↻ Ngược: ${rev} (${revPct}%)</span>
+                ${doji > 0 ? `<span style="font-size:0.6rem;color:#b8860b;font-weight:700;">◇ Doji: ${doji} (${dojiPct}%)</span>` : ''}
+              </div>
+            </div>
+          </div>`;
+        }
+
+        const t2_samePct  = pct2(t2_same, t2_total);
+        const t2_revPct   = pct2(t2_rev,  t2_total);
+        const t2_dojiPct  = pct2(t2_doji, t2_total);
+
+        const t2_dominantLabel = t2_same >= t2_rev
+          ? `<span style="color:#2c4a7c;font-weight:700;">Cùng chiều</span> chiếm ưu thế`
+          : `<span style="color:#c0392b;font-weight:700;">Ngược chiều</span> chiếm ưu thế`;
+
+        return `<div style="border:1px solid var(--border);border-radius:5px;padding:8px 10px;margin-bottom:10px;">
+          <div style="font-size:0.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--faint);font-weight:600;margin-bottom:8px;">
+            🕯️🕯️ Nến thứ 2 sau nến Breakout
+            <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted);margin-left:6px;">nến [break + 2] cùng chiều hay ngược chiều?</span>
+          </div>
+
+          <!-- Tổng quan -->
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px;">
+            <div style="text-align:center;padding:6px 4px;background:var(--blue-lt);border-radius:4px;border:1px solid #a8bad8;">
+              <div style="font-size:0.58rem;color:var(--blue);font-weight:600;margin-bottom:2px;">↺ CÙNG CHIỀU</div>
+              <div style="font-size:1.2rem;font-weight:700;color:#2c4a7c;">${t2_samePct}%</div>
+              <div style="font-size:0.58rem;color:var(--muted);">${t2_same} / ${t2_total}</div>
+            </div>
+            <div style="text-align:center;padding:6px 4px;background:var(--red-lt);border-radius:4px;border:1px solid #e8a09a;">
+              <div style="font-size:0.58rem;color:var(--red);font-weight:600;margin-bottom:2px;">↻ NGƯỢC CHIỀU</div>
+              <div style="font-size:1.2rem;font-weight:700;color:#c0392b;">${t2_revPct}%</div>
+              <div style="font-size:0.58rem;color:var(--muted);">${t2_rev} / ${t2_total}</div>
+            </div>
+            <div style="text-align:center;padding:6px 4px;background:#fffbf0;border-radius:4px;border:1px solid #e8d88a;">
+              <div style="font-size:0.58rem;color:#7a6a1a;font-weight:600;margin-bottom:2px;">◇ DOJI</div>
+              <div style="font-size:1.2rem;font-weight:700;color:#b8860b;">${t2_dojiPct}%</div>
+              <div style="font-size:0.58rem;color:var(--muted);">${t2_doji} / ${t2_total}</div>
+            </div>
+          </div>
+
+          <!-- Nhận xét nhanh -->
+          <div style="font-size:0.67rem;color:var(--ink-2);margin-bottom:8px;padding:5px 8px;background:var(--bg);border-radius:3px;border-left:2px solid var(--border-dark);">
+            Trên ${t2_total} lần breakout: ${t2_dominantLabel}
+            ${Math.abs(t2_samePct - t2_revPct) <= 10
+              ? ' — <span style="color:#b8860b;">Không có xu hướng rõ, hai chiều gần bằng nhau</span>'
+              : ''}
+          </div>
+
+          <!-- Breakdown theo hướng break -->
+          <div style="margin-bottom:8px;">
+            <div style="font-size:0.55rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--faint);font-weight:600;margin-bottom:5px;">Theo hướng Breakout</div>
+            <div style="display:flex;flex-direction:column;gap:6px;padding:6px 8px;background:var(--bg);border-radius:4px;">
+              ${nextCandleRow2('Break UP ▲','#2c4a7c', t2_upBreak_same, t2_upBreak_rev, t2_upBreak_doji, t2_upBreak_total)}
+              ${nextCandleRow2('Break DN ▼','#c0392b', t2_dnBreak_same, t2_dnBreak_rev, t2_dnBreak_doji, t2_dnBreak_total)}
+            </div>
+          </div>
+
+          <!-- Breakdown BOS vs CHOCH -->
+          <div>
+            <div style="font-size:0.55rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--faint);font-weight:600;margin-bottom:5px;">Theo loại Signal</div>
+            <div style="display:flex;flex-direction:column;gap:6px;padding:6px 8px;background:var(--bg);border-radius:4px;">
+              ${nextCandleRow2('BOS','var(--ink)', t2_bos_same, t2_bos_rev, t2_bos_doji, t2_bos_total)}
+              ${nextCandleRow2('CHOCH','#2c4a7c', t2_choch_same, t2_choch_rev, t2_choch_doji, t2_choch_total)}
+            </div>
+          </div>
+
+          <!-- Chú thích -->
+          <div style="margin-top:6px;font-size:0.6rem;color:var(--faint);line-height:1.6;">
+            <b>Cùng chiều</b>: break UP → nến [+2] tăng; break DN → nến [+2] giảm.
+            <b>Ngược chiều</b>: nến [+2] đi ngược break.
+            <b>Doji</b>: body &lt; 20% range (thân nến rất nhỏ).
+          </div>
+        </div>`;
+      })()}
+
       </div>
     </div>` : '';
 
